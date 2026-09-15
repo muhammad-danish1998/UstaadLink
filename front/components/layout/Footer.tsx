@@ -110,11 +110,6 @@ export const Footer: React.FC = () => {
                   Privacy Policy
                 </Link>
               </li>
-              <li>
-                <Link href="/admin" className="hover:text-blue-400 text-slate-400 transition-colors font-medium">
-                  Admin Panel
-                </Link>
-              </li>
             </ul>
           </div>
         </div>
