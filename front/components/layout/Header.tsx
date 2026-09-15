@@ -36,8 +36,15 @@ export const Header: React.FC = () => {
         <div className="flex items-center justify-between h-18">
           {/* Logo & Slogan */}
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:bg-blue-700 transition-colors">
-              <GraduationCap className="w-6 h-6" />
+            <div className="relative w-10 h-10 rounded-xl overflow-hidden shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform shrink-0">
+              <Image 
+                src="/favicon.svg" 
+                alt="UstaadLink Logo" 
+                width={40} 
+                height={40} 
+                className="w-full h-full object-contain"
+                priority
+              />
             </div>
             <div className="flex flex-col">
               <span className="text-xl font-bold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors">

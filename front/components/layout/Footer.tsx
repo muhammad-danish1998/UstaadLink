@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import { GraduationCap, Heart, ShieldCheck, Mail } from 'lucide-react';
+import Image from 'next/image';
+import { Heart, ShieldCheck, Mail } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -10,8 +11,14 @@ export const Footer: React.FC = () => {
           {/* Brand Col */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md">
-                <GraduationCap className="w-6 h-6" />
+              <div className="relative w-10 h-10 rounded-xl overflow-hidden shadow-md shrink-0">
+                <Image 
+                  src="/favicon.svg" 
+                  alt="UstaadLink Logo" 
+                  width={40} 
+                  height={40} 
+                  className="w-full h-full object-contain"
+                />
               </div>
               <span className="text-xl font-bold tracking-tight text-white">UstaadLink</span>
             </div>

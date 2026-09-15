@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="60%" stop-color="#1d4ed8" />
+      <stop offset="100%" stop-color="#1e40af" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+    <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1e3a8a" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+
+  <!-- Subtle Inner Ring Highlight -->
+  <rect x="16" y="16" width="480" height="480" rx="112" stroke="white" stroke-opacity="0.12" stroke-width="6" fill="none" />
+
+  <!-- Graduation Cap / Ustaad Emblem -->
+  <g filter="url(#dropShadow)">
+    <!-- Mortarboard Diamond Top -->
+    <path d="M256 128L416 208L256 288L96 208L256 128Z" fill="white" />
+    
+    <!-- Cap Skullcap Lower Arc -->
+    <path d="M152 242V312C152 352 198 384 256 384C314 384 360 352 360 312V242L256 294L152 242Z" fill="#f1f5f9" />
+    
+    <!-- Link Connective Node Badge (The "Link" in UstaadLink) -->
+    <circle cx="384" cy="328" r="44" fill="url(#accentGrad)" stroke="white" stroke-width="8" />
+    <path d="M370 328H398M384 314V342" stroke="white" stroke-width="6" stroke-linecap="round" />
+    
+    <!-- Cap Tassel Hanging Left -->
+    <path d="M168 220V310C168 322 156 332 144 332C132 332 120 322 120 310V220" stroke="url(#accentGrad)" stroke-width="8" stroke-linecap="round" fill="none" />
+    <circle cx="168" cy="220" r="7" fill="url(#accentGrad)" />
+  </g>
+</svg>
