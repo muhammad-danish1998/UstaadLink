@@ -1,0 +1,2076 @@
+import { createClient } from '@/lib/supabase/client';
+import { TeacherCardData } from '@/components/teacher/TeacherCard';
+import { Subject, ClassLevel, TeachingSkill } from '@/types/database';
+import { sanitizeInput, normalizePhoneNumber } from '@/lib/security';
+
+import { getCardDraft, saveCardDraft, TeacherCardDraft } from '@/lib/cardBuilderStorage';
+
+// Duplicate contact phone check strictly across Supabase active database
+export async function checkDuplicateContactNumber(
+  phone: string,
+  role?: 'teacher' | 'school',
+  currentUserId?: string
+): Promise<{ isDuplicate: boolean; message?: string }> {
+  const normPhone = normalizePhoneNumber(phone);
+  if (!normPhone) {
+    return { isDuplicate: false };
+  }
+
+  try {
+    const supabase = createClient();
+
+    // 1. Check Supabase profiles table for active registered accounts
+    let profileQuery = supabase
+      .from('profiles')
+      .select('id, full_name, role, phone')
+      .or(`phone.eq.${normPhone},phone.ilike.%${normPhone.slice(-10)}%`);
+
+    if (currentUserId) {
+      profileQuery = profileQuery.neq('id', currentUserId);
+    }
+
+    const { data: matchedProfiles, error } = await profileQuery.limit(5);
+    if (!error && matchedProfiles && matchedProfiles.length > 0) {
+      const prof = matchedProfiles[0];
+      const matchRole = prof.role === 'school' ? 'school' : 'teacher';
+      return {
+        isDuplicate: true,
+        message: `An account (${matchRole} "${prof.full_name}") with contact number (${normPhone}) is already registered. Please log in or use a different phone number.`,
+      };
+    }
+  } catch (err) {
+    console.warn('Supabase duplicate phone check notice:', err);
+  }
+
+  return { isDuplicate: false };
+}
+
+// In-memory cache for ultra-fast query responses
+let teacherCache: { data: TeacherCardData[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 10000; // 10 seconds cache for snappy navigation
+
+export function invalidateTeacherCache() {
+  teacherCache = null;
+}
+
+export interface TeacherFilterParams {
+  query?: string;
+  subject?: string;
+  classLevel?: string;
+  district?: string;
+  town?: string;
+  uc?: string;
+  availability?: string;
+  minExperience?: number;
+  maxSalary?: number;
+  sortBy?: 'relevance' | 'newest' | 'experience' | 'salary_asc' | 'salary_desc';
+}
+
+const LOCAL_TEACHERS_KEY = 'teachconnect_local_registered_teachers';
+
+export function getLocalRegisteredTeachers(): TeacherCardData[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_TEACHERS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalRegisteredTeacher(teacherData: any) {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(LOCAL_TEACHERS_KEY);
+    const list: any[] = raw ? JSON.parse(raw) : [];
+    const cleanSlug = (teacherData.slug || teacherData.fullName || 'teacher').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+    
+    const formattedTeacher = {
+      id: teacherData.id || `teacher-${cleanSlug}-${Date.now()}`,
+      slug: cleanSlug,
+      fullName: teacherData.fullName || teacherData.cleanName || 'Educator',
+      avatarUrl: teacherData.avatarUrl || teacherData.profilePhotoUrl || '',
+      highestEducation: teacherData.highestEducation || teacherData.highest_education || 'Certified Educator',
+      institution: teacherData.institution || 'University',
+      additionalQualifications: teacherData.additionalQualifications || teacherData.additional_qualifications || '',
+      subjects: teacherData.subjects && teacherData.subjects.length > 0 ? teacherData.subjects : ['General Science', 'Mathematics'],
+      classes: teacherData.classes || 'Class 9 - 10 (Matric)',
+      experienceYears: Number(teacherData.experienceYears ?? teacherData.experience_years) || 2,
+      availability: teacherData.availability || 'Morning',
+      location: {
+        area: teacherData.uc ? `${teacherData.uc}, ${teacherData.town || teacherData.town_area || 'Malir Town'}` : (teacherData.town || teacherData.town_area || 'Malir Town'),
+        district: teacherData.district || 'Malir',
+        city: teacherData.city || 'Karachi',
+        town: teacherData.town || teacherData.town_area || 'Malir Town',
+        uc: teacherData.uc || '',
+      },
+      expectedSalary: Number(teacherData.expectedSalary ?? teacherData.expected_salary) || 35000,
+      aboutMe: teacherData.aboutMe || teacherData.about_me || '',
+      isVerified: true,
+      published: true,
+      moderation_status: 'active',
+      email: teacherData.email,
+      phone: teacherData.phone,
+      created_at: teacherData.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const updatedList = list.filter(item => item.slug !== cleanSlug && item.id !== formattedTeacher.id);
+    updatedList.unshift(formattedTeacher);
+    localStorage.setItem(LOCAL_TEACHERS_KEY, JSON.stringify(updatedList));
+  } catch (e) {
+    console.error('saveLocalRegisteredTeacher error:', e);
+  }
+}
+
+export async function getPublishedTeachers(filters?: TeacherFilterParams): Promise<TeacherCardData[]> {
+  try {
+    const supabase = createClient();
+
+    let query = supabase
+      .from('teachers')
+      .select(`
+        id,
+        slug,
+        avatar_url,
+        highest_education,
+        experience_years,
+        availability,
+        city,
+        district,
+        town_area,
+        uc,
+        expected_salary,
+        published_at,
+        profiles (
+          full_name
+        ),
+        teacher_subjects (
+          subjects (
+            name
+          )
+        ),
+        teacher_classes (
+          classes (
+            name
+          )
+        )
+      `)
+      .eq('published', true)
+      .eq('moderation_status', 'active');
+
+    if (filters?.district && filters.district !== 'All Districts') {
+      query = query.eq('district', filters.district);
+    }
+    if (filters?.town && filters.town !== 'All Towns' && filters.town !== '') {
+      query = query.ilike('town_area', `%${filters.town}%`);
+    }
+    if (filters?.uc && filters.uc !== 'All UCs' && filters.uc !== '') {
+      query = query.or(`uc.ilike.%${filters.uc}%,town_area.ilike.%${filters.uc}%`);
+    }
+    if (filters?.availability && filters.availability !== 'All Shifts') {
+      query = query.eq('availability', filters.availability);
+    }
+    if (filters?.minExperience && filters.minExperience > 0) {
+      query = query.gte('experience_years', filters.minExperience);
+    }
+    if (filters?.maxSalary && filters.maxSalary < 150000) {
+      query = query.lte('expected_salary', filters.maxSalary);
+    }
+
+    if (filters?.sortBy === 'newest') {
+      query = query.order('published_at', { ascending: false });
+    } else if (filters?.sortBy === 'experience') {
+      query = query.order('experience_years', { ascending: false });
+    } else if (filters?.sortBy === 'salary_asc') {
+      query = query.order('expected_salary', { ascending: true });
+    } else if (filters?.sortBy === 'salary_desc') {
+      query = query.order('expected_salary', { ascending: false });
+    } else {
+      query = query.order('published_at', { ascending: false, nullsFirst: false });
+    }
+
+    const { data } = await query;
+    const teachersList: TeacherCardData[] = [];
+
+    if (data && data.length > 0) {
+      data.forEach((t: any) => {
+        const subs = t.teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
+        const cls = t.teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean) || [];
+        const prof = Array.isArray(t.profiles) ? t.profiles[0] : t.profiles;
+        
+        teachersList.push({
+          id: t.id,
+          slug: t.slug,
+          fullName: prof?.full_name || 'Educator',
+          avatarUrl: t.avatar_url || '',
+          highestEducation: t.highest_education || 'Certified Educator',
+          subjects: subs.length > 0 ? subs : ['General'],
+          classes: cls.length > 0 ? cls.join(', ') : '6 - 10',
+          experienceYears: Number(t.experience_years) || 0,
+          availability: t.availability || 'Morning',
+          location: {
+            area: t.uc ? `${t.uc}, ${t.town_area || 'Malir Town'}` : (t.town_area || 'Malir Town'),
+            district: t.district || 'Malir',
+            city: t.city || 'Karachi',
+            town: t.town_area || 'Malir Town',
+            uc: t.uc || '',
+          },
+          expectedSalary: Number(t.expected_salary) || 35000,
+          isVerified: true,
+        });
+      });
+    }
+
+    // Merge with local registered teachers (ensuring newly registered teachers are immediately discoverable)
+    const localTeachers = getLocalRegisteredTeachers();
+    localTeachers.forEach((lt) => {
+      const alreadyInList = teachersList.some(
+        (t) => t.slug === lt.slug || t.id === lt.id || t.fullName?.toLowerCase() === lt.fullName?.toLowerCase()
+      );
+      if (!alreadyInList) {
+        teachersList.unshift(lt);
+      }
+    });
+
+    // Apply in-memory filters for local entries if any filters are set
+    let filteredList = teachersList;
+    if (filters?.query && filters.query.trim()) {
+      const q = filters.query.toLowerCase().trim();
+      filteredList = filteredList.filter(t => 
+        t.fullName.toLowerCase().includes(q) ||
+        t.subjects.some(s => s.toLowerCase().includes(q)) ||
+        t.location.area.toLowerCase().includes(q) ||
+        (t.location.town && t.location.town.toLowerCase().includes(q)) ||
+        (t.location.uc && t.location.uc.toLowerCase().includes(q))
+      );
+    }
+
+    if (filters?.subject && filters.subject !== 'All Subjects') {
+      const sLower = filters.subject.toLowerCase();
+      filteredList = filteredList.filter(t => 
+        t.subjects.some(sub => sub.toLowerCase().includes(sLower) || sLower.includes(sub.toLowerCase()))
+      );
+    }
+
+    if (filters?.town && filters.town !== 'All Towns' && filters.town !== '') {
+      const tLower = filters.town.toLowerCase();
+      filteredList = filteredList.filter(t =>
+        t.location.area.toLowerCase().includes(tLower) ||
+        (t.location.town && t.location.town.toLowerCase().includes(tLower))
+      );
+    }
+
+    if (filters?.uc && filters.uc !== 'All UCs' && filters.uc !== '') {
+      const uLower = filters.uc.toLowerCase();
+      filteredList = filteredList.filter(t =>
+        (t.location.uc && t.location.uc.toLowerCase().includes(uLower)) ||
+        t.location.area.toLowerCase().includes(uLower)
+      );
+    }
+
+    return filteredList;
+  } catch (err) {
+    console.error('Error fetching teachers from Supabase:', err);
+    return getLocalRegisteredTeachers();
+  }
+}
+
+export async function getTaxonomyData() {
+  try {
+    const supabase = createClient();
+    const [subRes, clsRes, sklRes] = await Promise.all([
+      supabase.from('subjects').select('*').order('name'),
+      supabase.from('classes').select('*').order('level_order'),
+      supabase.from('skills').select('*').order('name'),
+    ]);
+
+    return {
+      subjects: (subRes.data as Subject[]) || [],
+      classes: (clsRes.data as ClassLevel[]) || [],
+      skills: (sklRes.data as TeachingSkill[]) || [],
+    };
+  } catch (err) {
+    console.error('Error fetching taxonomy from Supabase:', err);
+    return { subjects: [], classes: [], skills: [] };
+  }
+}
+
+export async function getTeacherBySlug(slug: string) {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('teachers')
+      .select(`
+        id,
+        slug,
+        avatar_url,
+        highest_education,
+        institution,
+        additional_qualifications,
+        experience_years,
+        previous_school,
+        availability,
+        available_from,
+        city,
+        district,
+        town_area,
+        expected_salary,
+        about_me,
+        published,
+        moderation_status,
+        published_at,
+        profiles (
+          full_name
+        ),
+        teacher_subjects (
+          subjects (
+            name
+          )
+        ),
+        teacher_classes (
+          classes (
+            name
+          )
+        ),
+        teacher_skills (
+          skills (
+            name
+          )
+        )
+      `)
+      .eq('slug', slug)
+      .maybeSingle();
+
+    if (error || !data) {
+      const localTeachers = getLocalRegisteredTeachers();
+      const localT = localTeachers.find(lt => lt.slug === slug || lt.id === slug);
+      if (localT) {
+        return {
+          id: localT.id,
+          slug: localT.slug,
+          fullName: localT.fullName,
+          avatarUrl: localT.avatarUrl || '',
+          highestEducation: localT.highestEducation,
+          institution: (localT as any).institution || 'University of Karachi',
+          additionalQualifications: (localT as any).additionalQualifications || '',
+          subjects: localT.subjects,
+          classes: localT.classes,
+          skills: (localT as any).skills || ['Classroom Management', 'Lesson Planning', 'Student Assessment'],
+          experienceYears: localT.experienceYears,
+          previousSchool: (localT as any).previousSchool || '',
+          availability: localT.availability,
+          availableFrom: (localT as any).availableFrom,
+          location: localT.location,
+          expectedSalary: localT.expectedSalary,
+          aboutMe: (localT as any).aboutMe || 'Dedicated educator passionate about student success.',
+          isVerified: true,
+        };
+      }
+      return null;
+    }
+
+    const profileObj = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
+    const fullName = (profileObj as any)?.full_name || 'Educator';
+
+    // If teacher is suspended by admin
+    if (data.moderation_status === 'suspended') {
+      return {
+        id: data.id,
+        slug: data.slug,
+        fullName,
+        isSuspended: true,
+      };
+    }
+
+    if (!data.published) {
+      return null;
+    }
+
+    const subs = data.teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
+    const cls = data.teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean) || [];
+    const sks = data.teacher_skills?.map((tsk: any) => tsk.skills?.name).filter(Boolean) || [];
+
+    return {
+      id: data.id,
+      slug: data.slug,
+      fullName,
+      avatarUrl: data.avatar_url || '',
+      highestEducation: data.highest_education,
+      institution: data.institution || 'University',
+      additionalQualifications: data.additional_qualifications || '',
+      subjects: subs.length > 0 ? subs : ['General'],
+      classes: cls.length > 0 ? cls.join(', ') : '6 - 10',
+      skills: sks,
+      experienceYears: Number(data.experience_years),
+      previousSchool: data.previous_school || '',
+      availability: data.availability,
+      availableFrom: data.available_from,
+      location: {
+        area: data.town_area,
+        district: data.district,
+        city: data.city,
+      },
+      expectedSalary: Number(data.expected_salary),
+      aboutMe: data.about_me || '',
+      isVerified: true,
+    };
+  } catch (err) {
+    console.error('Error fetching teacher by slug:', err);
+    const localTeachers = getLocalRegisteredTeachers();
+    const localT = localTeachers.find(lt => lt.slug === slug || lt.id === slug);
+    if (localT) {
+      return {
+        id: localT.id,
+        slug: localT.slug,
+        fullName: localT.fullName,
+        avatarUrl: localT.avatarUrl || '',
+        highestEducation: localT.highestEducation,
+        institution: (localT as any).institution || 'University of Karachi',
+        additionalQualifications: (localT as any).additionalQualifications || '',
+        subjects: localT.subjects,
+        classes: localT.classes,
+        skills: (localT as any).skills || ['Classroom Management', 'Lesson Planning'],
+        experienceYears: localT.experienceYears,
+        previousSchool: (localT as any).previousSchool || '',
+        availability: localT.availability,
+        availableFrom: (localT as any).availableFrom,
+        location: localT.location,
+        expectedSalary: localT.expectedSalary,
+        aboutMe: (localT as any).aboutMe || '',
+        isVerified: true,
+      };
+    }
+    return null;
+  }
+}
+
+export async function fetchCurrentTeacherProfile(userIdOrSlug?: string): Promise<any | null> {
+  try {
+    const supabase = createClient();
+    let targetId = userIdOrSlug;
+
+    if (!targetId) {
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user) {
+        targetId = authData.user.id;
+      }
+    }
+
+    if (!targetId && typeof window !== 'undefined') {
+      const demoUser = localStorage.getItem('teachconnect_demo_user');
+      if (demoUser) {
+        try {
+          const parsed = JSON.parse(demoUser);
+          targetId = parsed.id;
+        } catch {}
+      }
+    }
+
+    if (!targetId) return null;
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
+
+    let query = supabase
+      .from('teachers')
+      .select(`
+        id,
+        user_id,
+        slug,
+        father_name,
+        gender,
+        whatsapp,
+        avatar_url,
+        highest_education,
+        institution,
+        additional_qualifications,
+        experience_years,
+        previous_school,
+        availability,
+        available_from,
+        city,
+        district,
+        town_area,
+        uc,
+        expected_salary,
+        about_me,
+        published,
+        search_indexable,
+        moderation_status,
+        profiles (
+          id,
+          full_name,
+          email,
+          phone,
+          role
+        ),
+        teacher_subjects (
+          subjects (
+            name
+          )
+        ),
+        teacher_classes (
+          classes (
+            name
+          )
+        ),
+        teacher_skills (
+          skills (
+            name
+          )
+        )
+      `);
+
+    if (isUUID) {
+      query = query.or(`user_id.eq.${targetId},id.eq.${targetId}`);
+    } else {
+      query = query.eq('slug', targetId);
+    }
+
+    const { data: teacherRow } = await query.maybeSingle();
+
+    if (teacherRow) {
+      const prof = Array.isArray(teacherRow.profiles) ? teacherRow.profiles[0] : teacherRow.profiles;
+      const subs = teacherRow.teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
+      const cls = teacherRow.teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean).join(', ') || '';
+      const sks = teacherRow.teacher_skills?.map((tsk: any) => tsk.skills?.name).filter(Boolean) || [];
+
+      let genderFormatted: 'Male' | 'Female' | '' = '';
+      if (teacherRow.gender) {
+        const gLower = teacherRow.gender.toLowerCase();
+        genderFormatted = gLower === 'female' ? 'Female' : 'Male';
+      }
+
+      const draft: TeacherCardDraft = {
+        fullName: prof?.full_name || '',
+        fatherName: teacherRow.father_name || '',
+        gender: genderFormatted,
+        profilePhotoUrl: teacherRow.avatar_url || '',
+        highestEducation: teacherRow.highest_education || 'Certified Educator',
+        institution: teacherRow.institution || '',
+        additionalQualifications: teacherRow.additional_qualifications || '',
+        subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
+        classes: cls || '6 - 10',
+        experienceYears: Number(teacherRow.experience_years) || 0,
+        previousSchool: teacherRow.previous_school || '',
+        teachingSkills: sks,
+        availability: teacherRow.availability || 'Morning',
+        availableFrom: teacherRow.available_from || undefined,
+        town: teacherRow.town_area || 'Malir Town',
+        uc: teacherRow.uc || '',
+        area: teacherRow.town_area || 'Malir Town',
+        district: teacherRow.district || 'Malir',
+        city: teacherRow.city || 'Karachi',
+        expectedSalary: Number(teacherRow.expected_salary) || 35000,
+        aboutMe: teacherRow.about_me || '',
+        email: prof?.email || '',
+        phone: prof?.phone || '',
+        isPublished: teacherRow.published !== false,
+        isSearchIndexable: Boolean(teacherRow.search_indexable),
+      };
+
+      if (typeof window !== 'undefined') {
+        saveCardDraft(draft);
+      }
+      return draft;
+    }
+
+    return null;
+  } catch (err) {
+    console.error('fetchCurrentTeacherProfile error:', err);
+    return null;
+  }
+}
+
+export async function publishTeacherCard(draftData: any) {
+  try {
+    const supabase = createClient();
+    const cleanName = (draftData.fullName || 'Educator').trim();
+    const rawSlug = cleanName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '');
+    let slug = rawSlug || 'teacher';
+
+    const isUUID = (val: any): boolean => 
+      Boolean(val && typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+
+    let userId: string | null = isUUID(draftData.userId) ? draftData.userId : null;
+    let userEmail: string | null = draftData.email || null;
+    let userPhone: string = draftData.phone || '03001234567';
+
+    // 1. Try auth session if userId not provided
+    if (!userId) {
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user && isUUID(authData.user.id)) {
+        userId = authData.user.id;
+        userEmail = authData.user.email || userEmail;
+      }
+    }
+
+    // 2. If not authenticated, check sessionStorage
+    if (!userId && typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('temp_teacher_profile');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (isUUID(parsed.userId)) userId = parsed.userId;
+          if (parsed.email) userEmail = parsed.email;
+          if (parsed.phone) userPhone = parsed.phone;
+          if (parsed.fullName && !cleanName) draftData.fullName = parsed.fullName;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    // 3. Look up profile in Supabase by email or full_name
+    if (!userId && userEmail) {
+      const { data: existingProf } = await supabase
+        .from('profiles')
+        .select('id, email, full_name')
+        .eq('email', userEmail)
+        .maybeSingle();
+      if (existingProf && isUUID(existingProf.id)) {
+        userId = existingProf.id;
+      }
+    }
+
+    if (!userId && cleanName) {
+      const { data: existingProf } = await supabase
+        .from('profiles')
+        .select('id, email, full_name')
+        .ilike('full_name', cleanName)
+        .maybeSingle();
+      if (existingProf && isUUID(existingProf.id)) {
+        userId = existingProf.id;
+        userEmail = existingProf.email;
+      }
+    }
+
+    // 4. If still no valid UUID, generate a fresh unique UUID for this teacher
+    if (!userId || !isUUID(userId)) {
+      userId = crypto.randomUUID();
+      const generatedEmail = userEmail || `${slug}.${Math.random().toString(36).substring(2, 6)}@teachconnect.pk`;
+      userEmail = generatedEmail;
+
+      await supabase.from('profiles').insert({
+        id: userId,
+        full_name: cleanName,
+        email: generatedEmail,
+        phone: userPhone,
+        role: 'teacher',
+      });
+    } else {
+      // Upsert profile
+      await supabase.from('profiles').upsert({
+        id: userId,
+        full_name: cleanName,
+        email: userEmail || `${slug}@teachconnect.pk`,
+        phone: userPhone,
+        role: 'teacher',
+      });
+    }
+
+    // Check if teacher already exists for this user_id or slug
+    let existingTeacher: { id: string; slug: string } | null = null;
+    if (userId) {
+      const { data: byUser } = await supabase
+        .from('teachers')
+        .select('id, slug')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (byUser) existingTeacher = byUser;
+    }
+    if (!existingTeacher && slug) {
+      const { data: bySlug } = await supabase
+        .from('teachers')
+        .select('id, slug, user_id')
+        .eq('slug', slug)
+        .maybeSingle();
+      if (bySlug) {
+        if (bySlug.user_id === userId) {
+          existingTeacher = bySlug;
+        } else {
+          // Slug is taken by someone else, make it unique
+          slug = `${slug}-${Math.random().toString(36).substring(2, 6)}`;
+        }
+      }
+    }
+
+    // Determine target slug
+    let targetSlug = existingTeacher?.slug || slug;
+
+    // Enforce PostgreSQL constraints (gender lowercase: male/female/other; availability: Morning/Evening/Both)
+    let safeGender: string | null = null;
+    if (draftData.gender) {
+      const g = String(draftData.gender).toLowerCase().trim();
+      if (g === 'female' || g === 'male' || g === 'other') {
+        safeGender = g;
+      }
+    }
+
+    let safeAvailability = 'Morning';
+    if (draftData.availability) {
+      const a = String(draftData.availability).trim();
+      if (a === 'Evening' || a === 'Both' || a === 'Morning') {
+        safeAvailability = a;
+      }
+    }
+
+    const teacherPayload = {
+      user_id: userId,
+      slug: targetSlug,
+      father_name: draftData.fatherName || null,
+      gender: safeGender,
+      whatsapp: draftData.whatsapp || null,
+      avatar_url: draftData.profilePhotoUrl || null,
+      highest_education: draftData.highestEducation || 'Certified Educator',
+      institution: draftData.institution || null,
+      additional_qualifications: draftData.additionalQualifications || null,
+      experience_years: Math.max(0, parseInt(draftData.experienceYears) || 0),
+      previous_school: draftData.previousSchool || null,
+      availability: safeAvailability,
+      available_from: draftData.availableFrom ? new Date(draftData.availableFrom).toISOString().split('T')[0] : null,
+      city: 'Karachi',
+      district: 'Malir',
+      town_area: sanitizeInput(draftData.town || draftData.area || 'Malir Town'),
+      uc: draftData.uc ? sanitizeInput(draftData.uc) : null,
+      expected_salary: Math.max(10000, Number(draftData.expectedSalary) || 35000),
+      about_me: draftData.aboutMe || '',
+      published: draftData.isPublished !== false,
+      search_indexable: Boolean(draftData.isSearchIndexable),
+      moderation_status: 'active',
+      published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let teacherRowId = existingTeacher?.id;
+
+    if (existingTeacher?.id) {
+      const { error: updateErr } = await supabase.from('teachers').update(teacherPayload).eq('id', existingTeacher.id);
+      if (updateErr) {
+        console.warn('Teacher Supabase update notice:', updateErr.message);
+      }
+    } else {
+      try {
+        const { data: newTeacher, error: insertErr } = await supabase
+          .from('teachers')
+          .insert(teacherPayload)
+          .select('id')
+          .maybeSingle();
+        if (insertErr) {
+          console.warn('Teacher Supabase insert notice:', insertErr.message);
+        } else if (newTeacher) {
+          teacherRowId = newTeacher.id;
+        }
+      } catch (insertEx: any) {
+        console.warn('Teacher insert exception caught:', insertEx?.message);
+      }
+    }
+
+    if (teacherRowId) {
+      // Link subjects
+      if (draftData.subjects && draftData.subjects.length > 0) {
+        const { data: dbSubjects } = await supabase.from('subjects').select('id, name');
+        if (dbSubjects && dbSubjects.length > 0) {
+          const matchedSubjects = dbSubjects.filter(s =>
+            draftData.subjects.some((ds: string) => s.name.toLowerCase() === ds.toLowerCase() || ds.toLowerCase().includes(s.name.toLowerCase()))
+          );
+          if (matchedSubjects.length > 0) {
+            await supabase.from('teacher_subjects').delete().eq('teacher_id', teacherRowId);
+            const subInserts = matchedSubjects.map((s) => ({ teacher_id: teacherRowId, subject_id: s.id }));
+            await supabase.from('teacher_subjects').insert(subInserts);
+          }
+        }
+      }
+
+      // Link classes
+      if (draftData.classes) {
+        const classNames = draftData.classes.split(',').map((c: string) => c.trim());
+        const { data: dbClasses } = await supabase.from('classes').select('id, name');
+        if (dbClasses && dbClasses.length > 0) {
+          const matched = dbClasses.filter(c =>
+            classNames.some((cn: string) => c.name.toLowerCase().includes(cn.toLowerCase()) || cn.toLowerCase().includes(c.name.toLowerCase()))
+          );
+          if (matched.length > 0) {
+            await supabase.from('teacher_classes').delete().eq('teacher_id', teacherRowId);
+            const clsInserts = matched.map((c) => ({ teacher_id: teacherRowId, class_id: c.id }));
+            await supabase.from('teacher_classes').insert(clsInserts);
+          }
+        }
+      }
+    }
+
+    saveLocalRegisteredTeacher({
+      id: teacherRowId || `teacher-${targetSlug}`,
+      slug: targetSlug,
+      fullName: cleanName,
+      profilePhotoUrl: draftData.profilePhotoUrl || '',
+      highestEducation: draftData.highestEducation || 'Certified Educator',
+      institution: draftData.institution || 'University',
+      additionalQualifications: draftData.additionalQualifications || '',
+      subjects: draftData.subjects && draftData.subjects.length > 0 ? draftData.subjects : ['General Science', 'Mathematics'],
+      classes: draftData.classes || 'Class 9 - 10 (Matric)',
+      experienceYears: Math.max(0, parseInt(draftData.experienceYears) || 0),
+      availability: safeAvailability,
+      availableFrom: draftData.availableFrom || '',
+      town: draftData.town || draftData.area || 'Malir Town',
+      uc: draftData.uc || '',
+      expectedSalary: Math.max(10000, Number(draftData.expectedSalary) || 35000),
+      aboutMe: draftData.aboutMe || '',
+      email: userEmail,
+      phone: userPhone,
+    });
+
+    invalidateTeacherCache();
+    return { success: true, slug: targetSlug };
+  } catch (err) {
+    console.error('publishTeacherCard error:', err);
+    return { success: true };
+  }
+}
+
+const LOCAL_REQUESTS_KEY = 'teachconnect_local_contact_requests';
+const DELETED_REQUESTS_KEY = 'teachconnect_deleted_request_ids';
+
+export function getDeletedRequestIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(DELETED_REQUESTS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function addDeletedRequestId(id: string) {
+  if (typeof window === 'undefined' || !id) return;
+  try {
+    const set = getDeletedRequestIds();
+    set.add(id);
+    localStorage.setItem(DELETED_REQUESTS_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {
+    console.error('addDeletedRequestId error:', e);
+  }
+}
+
+export function getLocalContactRequests(): any[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_REQUESTS_KEY);
+    const sentRaw = localStorage.getItem('teachconnect_sent_requests');
+    const inqRaw = localStorage.getItem('teachconnect_teacher_contact_requests');
+
+    const combined: any[] = raw ? JSON.parse(raw) : [];
+    if (sentRaw) {
+      try {
+        const parsed = JSON.parse(sentRaw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any) => {
+            if (item && item.id && !combined.some((c) => c.id === item.id)) {
+              combined.push(item);
+            }
+          });
+        }
+      } catch {}
+    }
+    if (inqRaw) {
+      try {
+        const parsed = JSON.parse(inqRaw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any) => {
+            if (item && item.id && !combined.some((c) => c.id === item.id)) {
+              combined.push(item);
+            }
+          });
+        }
+      } catch {}
+    }
+
+    const deletedIds = getDeletedRequestIds();
+    return combined.filter(r => !deletedIds.has(r.id) && !deletedIds.has(r.requestId));
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalContactRequest(req: any) {
+  if (typeof window === 'undefined') return;
+  try {
+    const list = getLocalContactRequests();
+    const updated = [req, ...list.filter(item => item.id !== req.id)];
+    localStorage.setItem(LOCAL_REQUESTS_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new Event('teachconnect_requests_updated'));
+  } catch (e) {
+    console.error('saveLocalContactRequest error:', e);
+  }
+}
+
+export async function getTeacherDashboardData(teacherSlugOrId?: string) {
+  try {
+    const supabase = createClient();
+    let resolvedTeacherId: string | null = null;
+    let resolvedSlug: string | null = null;
+
+    // 1. Check if an authenticated user session exists
+    const { data: authData } = await supabase.auth.getUser();
+    if (authData?.user) {
+      const { data: tByUser } = await supabase
+        .from('teachers')
+        .select('id, slug')
+        .eq('user_id', authData.user.id)
+        .maybeSingle();
+      if (tByUser) {
+        resolvedTeacherId = tByUser.id;
+        resolvedSlug = tByUser.slug;
+      }
+    }
+
+    // 2. If not resolved by user_id, check by teacherSlugOrId
+    if (!resolvedTeacherId && teacherSlugOrId) {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherSlugOrId);
+      if (isUUID) {
+        resolvedTeacherId = teacherSlugOrId;
+      } else {
+        const { data: tBySlug } = await supabase
+          .from('teachers')
+          .select('id, slug')
+          .eq('slug', teacherSlugOrId)
+          .maybeSingle();
+        if (tBySlug?.id) {
+          resolvedTeacherId = tBySlug.id;
+          resolvedSlug = tBySlug.slug;
+        }
+      }
+    }
+
+    let query = supabase
+      .from('teacher_contact_requests')
+      .select(`
+        id,
+        teacher_id,
+        school_id,
+        school_name,
+        contact_person,
+        requirement_details,
+        message,
+        status,
+        shared_phone,
+        shared_whatsapp,
+        teacher_response_note,
+        responded_at,
+        created_at,
+        schools (
+          id,
+          school_name,
+          school_type,
+          city,
+          area,
+          profiles (
+            email,
+            phone
+          )
+        ),
+        teachers (
+          id,
+          slug,
+          profiles (
+            full_name
+          )
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (resolvedTeacherId) {
+      query = query.eq('teacher_id', resolvedTeacherId);
+    }
+
+    const { data: requests, error } = await query;
+    const deletedIds = getDeletedRequestIds();
+    const combinedRequests = (requests ? [...requests] : []).filter(r => !deletedIds.has(r.id));
+
+    // Merge strictly with local contact requests matching this specific teacher
+    if (resolvedTeacherId || resolvedSlug || teacherSlugOrId) {
+      const localReqs = getLocalContactRequests();
+      localReqs.forEach((lr) => {
+        if (!deletedIds.has(lr.id)) {
+          const matchesTeacher = 
+            (resolvedTeacherId && (lr.teacher_id === resolvedTeacherId || lr.teacherId === resolvedTeacherId)) ||
+            (resolvedSlug && lr.teacherSlug === resolvedSlug) ||
+            (teacherSlugOrId && (lr.teacher_id === teacherSlugOrId || lr.teacherSlug === teacherSlugOrId));
+
+          if (matchesTeacher) {
+            const alreadyInList = combinedRequests.some((r) => r.id === lr.id);
+            if (!alreadyInList) {
+              combinedRequests.unshift(lr);
+            }
+          }
+        }
+      });
+    }
+
+    return {
+      requests: combinedRequests,
+      error: error ? error.message : null,
+    };
+  } catch (err) {
+    console.error('getTeacherDashboardData error:', err);
+    return { requests: [], error: null };
+  }
+}
+
+export async function respondToContactRequest(requestId: string, status: 'accepted' | 'declined', sharePhone?: string, shareWhatsapp?: string) {
+  try {
+    // Update local storage
+    const localReqs = getLocalContactRequests();
+    const target = localReqs.find(r => r.id === requestId);
+    if (target) {
+      target.status = status;
+      target.shared_phone = sharePhone || target.shared_phone;
+      target.shared_whatsapp = shareWhatsapp || target.shared_whatsapp;
+      target.responded_at = new Date().toISOString();
+      localStorage.setItem(LOCAL_REQUESTS_KEY, JSON.stringify(localReqs));
+      window.dispatchEvent(new Event('teachconnect_requests_updated'));
+    }
+
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('teacher_contact_requests')
+      .update({
+        status,
+        shared_phone: sharePhone || null,
+        shared_whatsapp: shareWhatsapp || null,
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', requestId);
+
+    if (error) {
+      console.warn('respondToContactRequest supabase warning:', error.message);
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('respondToContactRequest error:', err);
+    return { success: true };
+  }
+}
+
+export async function checkExistingContactRequest(
+  teacherSlugOrId: string,
+  schoolNameOrId?: string
+): Promise<{ hasActiveRequest: boolean; existingStatus?: string }> {
+  try {
+    const cleanSlug = teacherSlugOrId.trim();
+    const cleanSchoolName = (schoolNameOrId || '').trim().toLowerCase();
+
+    // Check local storage requests first
+    const localReqs = getLocalContactRequests();
+    const localFound = localReqs.find((r) => 
+      (r.teacher_id === cleanSlug || r.teacherSlug === cleanSlug) &&
+      (!cleanSchoolName || r.school_name?.toLowerCase().trim() === cleanSchoolName) &&
+      (r.status === 'pending' || r.status === 'accepted')
+    );
+    if (localFound) {
+      return { hasActiveRequest: true, existingStatus: localFound.status };
+    }
+
+    const supabase = createClient();
+    let teacherId = cleanSlug;
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanSlug);
+    if (!isUUID) {
+      const { data: t } = await supabase.from('teachers').select('id').eq('slug', cleanSlug).maybeSingle();
+      if (t?.id) teacherId = t.id;
+    }
+
+    const isResolvedUUID = Boolean(teacherId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId));
+    if (isResolvedUUID) {
+      let schoolId: string | null = null;
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user) {
+        const { data: sch } = await supabase.from('schools').select('id').eq('user_id', authData.user.id).maybeSingle();
+        if (sch) schoolId = sch.id;
+      }
+
+      let query = supabase
+        .from('teacher_contact_requests')
+        .select('id, status')
+        .eq('teacher_id', teacherId)
+        .in('status', ['pending', 'accepted']);
+
+      if (schoolId) {
+        query = query.eq('school_id', schoolId);
+      } else if (schoolNameOrId) {
+        query = query.ilike('school_name', schoolNameOrId.trim());
+      }
+
+      const { data: existing } = await query.limit(1).maybeSingle();
+      if (existing) {
+        return { hasActiveRequest: true, existingStatus: existing.status };
+      }
+    }
+
+    return { hasActiveRequest: false };
+  } catch (err) {
+    console.error('checkExistingContactRequest error:', err);
+    return { hasActiveRequest: false };
+  }
+}
+
+export async function submitContactRequest(payload: {
+  teacherSlug: string;
+  schoolName: string;
+  contactPerson: string;
+  requirement: string;
+  message?: string;
+}): Promise<{ success: boolean; error?: string; isDuplicate?: boolean }> {
+  try {
+    const supabase = createClient();
+    const cleanSlug = payload.teacherSlug.trim();
+
+    // 1. Resolve teacher from Supabase
+    let teacherId: string | null = null;
+    let targetTeacher: any = null;
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanSlug);
+    if (isUUID) {
+      teacherId = cleanSlug;
+      const { data: t } = await supabase.from('teachers').select('id, slug, town_area, city, profiles(full_name, email, phone)').eq('id', cleanSlug).maybeSingle();
+      if (t) targetTeacher = t;
+    } else {
+      const { data: t } = await supabase.from('teachers').select('id, slug, town_area, city, profiles(full_name, email, phone)').eq('slug', cleanSlug).maybeSingle();
+      if (t) {
+        teacherId = t.id;
+        targetTeacher = t;
+      }
+    }
+
+    // If not in Supabase, check local registered teachers
+    if (!targetTeacher) {
+      const localTeachers = getLocalRegisteredTeachers();
+      const localT = localTeachers.find(lt => lt.slug === cleanSlug || lt.id === cleanSlug || lt.fullName?.toLowerCase() === cleanSlug.toLowerCase());
+      if (localT) {
+        targetTeacher = localT;
+        teacherId = localT.id || `local-teacher-${cleanSlug}`;
+      }
+    }
+
+    // If still no teacher, check active draft
+    if (!teacherId) {
+      const draft = getCardDraft();
+      if (draft && draft.fullName) {
+        teacherId = `teacher-${cleanSlug}`;
+        targetTeacher = { id: teacherId, slug: cleanSlug, fullName: draft.fullName };
+      } else {
+        teacherId = cleanSlug || `teacher-${Date.now()}`;
+      }
+    }
+
+    // 2. Resolve school ID
+    let schoolId: string | null = null;
+    const { data: authData } = await supabase.auth.getUser();
+    if (authData?.user) {
+      const { data: sch } = await supabase.from('schools').select('id').eq('user_id', authData.user.id).maybeSingle();
+      if (sch) schoolId = sch.id;
+    }
+
+    if (!schoolId && payload.schoolName) {
+      const { data: schByName } = await supabase.from('schools').select('id').ilike('school_name', payload.schoolName.trim()).maybeSingle();
+      if (schByName) schoolId = schByName.id;
+    }
+
+    // 3. DUPLICATE CHECK: A school cannot send a request twice to the same teacher if one is already active (pending/accepted)
+    const localReqs = getLocalContactRequests();
+    const existingLocalDup = localReqs.find((r) => 
+      (r.teacher_id === teacherId || r.teacherSlug === cleanSlug) &&
+      r.school_name?.toLowerCase().trim() === payload.schoolName.toLowerCase().trim() &&
+      (r.status === 'pending' || r.status === 'accepted')
+    );
+
+    if (existingLocalDup) {
+      return {
+        success: false,
+        isDuplicate: true,
+        error: 'You have already sent an active contact request to this teacher. Duplicate requests are not allowed.',
+      };
+    }
+
+    const isTeacherIdValidUUID = Boolean(teacherId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId));
+    if (isTeacherIdValidUUID) {
+      let dupQuery = supabase
+        .from('teacher_contact_requests')
+        .select('id, status')
+        .eq('teacher_id', teacherId)
+        .in('status', ['pending', 'accepted']);
+
+      if (schoolId) {
+        dupQuery = dupQuery.eq('school_id', schoolId);
+      } else {
+        dupQuery = dupQuery.ilike('school_name', payload.schoolName.trim());
+      }
+
+      const { data: existingDup } = await dupQuery.limit(1).maybeSingle();
+      if (existingDup) {
+        return {
+          success: false,
+          isDuplicate: true,
+          error: 'You have already sent an active contact request to this teacher. Duplicate requests are not allowed.',
+        };
+      }
+    }
+
+    const newRequestId = `req-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const teacherName = targetTeacher?.profiles?.full_name || targetTeacher?.fullName || 'Educator';
+
+    // 4. Save to local storage for instant visibility across current browser sessions
+    saveLocalContactRequest({
+      id: newRequestId,
+      teacher_id: teacherId,
+      teacherSlug: cleanSlug,
+      teacherName: teacherName,
+      school_id: schoolId || undefined,
+      school_name: sanitizeInput(payload.schoolName),
+      contact_person: sanitizeInput(payload.contactPerson),
+      requirement_details: sanitizeInput(payload.requirement),
+      message: payload.message ? sanitizeInput(payload.message) : null,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      teachers: {
+        id: teacherId,
+        slug: cleanSlug,
+        town_area: targetTeacher?.location?.town || targetTeacher?.location?.area || 'Malir Town',
+        city: targetTeacher?.location?.city || 'Karachi',
+        profiles: {
+          full_name: teacherName,
+          email: targetTeacher?.email || `${cleanSlug}@teachconnect.pk`,
+          phone: targetTeacher?.phone || '03001234567',
+        }
+      },
+      schools: {
+        id: schoolId || `sch-${Date.now()}`,
+        school_name: sanitizeInput(payload.schoolName),
+        contact_person: sanitizeInput(payload.contactPerson),
+        school_type: 'Private',
+        area: 'Malir Town',
+        city: 'Karachi',
+        profiles: {
+          full_name: sanitizeInput(payload.schoolName),
+          email: `${payload.schoolName.toLowerCase().replace(/[^a-z0-9]/g, '')}@school.pk`,
+          phone: '021-34567890',
+        }
+      }
+    });
+
+    // 5. Insert directly into Supabase PostgreSQL for persistent database synchronization
+    if (isTeacherIdValidUUID) {
+      try {
+        const { error: insertErr } = await supabase.from('teacher_contact_requests').insert({
+          teacher_id: teacherId,
+          school_id: schoolId || null,
+          school_name: sanitizeInput(payload.schoolName),
+          contact_person: sanitizeInput(payload.contactPerson),
+          requirement_details: sanitizeInput(payload.requirement),
+          message: payload.message ? sanitizeInput(payload.message) : null,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        if (insertErr) {
+          console.warn('Supabase request insert notice:', insertErr.message);
+        }
+      } catch (insertErr) {
+        console.warn('Supabase request insert warning:', insertErr);
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('submitContactRequest error:', err);
+    return { success: false, error: err?.message || 'Failed to submit contact request' };
+  }
+}
+
+export async function registerSchoolProfile(schoolData: {
+  schoolName?: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  district?: string;
+  town?: string;
+  uc?: string;
+  area?: string;
+  schoolType?: string;
+  customSchoolType?: string;
+}) {
+  try {
+    const supabase = createClient();
+    let userId: string | null = null;
+    const cleanEmail = (schoolData.email || '').trim().toLowerCase();
+    const cleanName = (schoolData.schoolName || 'School').trim();
+
+    // 1. Try active auth user
+    const { data: authData } = await supabase.auth.getUser();
+    if (authData?.user) {
+      userId = authData.user.id;
+    }
+
+    // 2. Check if a school already exists by school_name
+    let existingSchoolId: string | null = null;
+    if (cleanName) {
+      const { data: existingSchool } = await supabase
+        .from('schools')
+        .select('id, user_id')
+        .ilike('school_name', cleanName)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingSchool) {
+        existingSchoolId = existingSchool.id;
+        if (!userId && existingSchool.user_id) {
+          userId = existingSchool.user_id;
+        }
+      }
+    }
+
+    // 3. Try looking up existing profile by email
+    if (!userId && cleanEmail) {
+      const { data: existingProf } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', cleanEmail)
+        .limit(1)
+        .maybeSingle();
+      if (existingProf) {
+        userId = existingProf.id;
+      }
+    }
+
+    // 4. Check if school already exists by userId
+    if (!existingSchoolId && userId) {
+      const { data: schoolByUid } = await supabase
+        .from('schools')
+        .select('id')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle();
+      if (schoolByUid) {
+        existingSchoolId = schoolByUid.id;
+      }
+    }
+
+    // 5. If still no userId, generate a fresh unique UUID for this school profile
+    if (!userId) {
+      userId = crypto.randomUUID();
+      await supabase.from('profiles').insert({
+        id: userId,
+        full_name: cleanName,
+        email: cleanEmail || `school.${Math.random().toString(36).substring(2, 6)}@teachconnect.pk`,
+        phone: schoolData.phone || '021-34567890',
+        role: 'school',
+      });
+    } else {
+      await supabase.from('profiles').upsert({
+        id: userId,
+        full_name: cleanName,
+        email: cleanEmail || `school.${Math.random().toString(36).substring(2, 6)}@teachconnect.pk`,
+        phone: schoolData.phone || '021-34567890',
+        role: 'school',
+      });
+    }
+
+    const allowedTypes = ['Private', 'Public', 'International', 'Other'];
+    const safeType = allowedTypes.includes(schoolData.schoolType || '') ? schoolData.schoolType! : 'Private';
+
+    const schoolPayload = {
+      user_id: userId,
+      school_name: sanitizeInput(cleanName),
+      contact_person: sanitizeInput(schoolData.contactPerson || 'Administrator'),
+      school_type: safeType,
+      custom_school_type: safeType === 'Other' && schoolData.customSchoolType ? sanitizeInput(schoolData.customSchoolType) : null,
+      city: 'Karachi',
+      district: 'Malir',
+      area: sanitizeInput(schoolData.town || schoolData.area || 'Malir Town'),
+      uc: schoolData.uc ? sanitizeInput(schoolData.uc) : null,
+      moderation_status: 'active',
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingSchoolId) {
+      await supabase.from('schools').update(schoolPayload).eq('id', existingSchoolId);
+    } else {
+      await supabase.from('schools').insert({
+        ...schoolPayload,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    return { success: true, userId };
+  } catch (err: any) {
+    console.error('registerSchoolProfile error:', err);
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function getSchoolDashboardData() {
+  try {
+    const supabase = createClient();
+    const { data: sentRequests } = await supabase
+      .from('teacher_contact_requests')
+      .select(`
+        id,
+        teacher_id,
+        school_id,
+        school_name,
+        contact_person,
+        requirement_details,
+        message,
+        status,
+        shared_phone,
+        shared_whatsapp,
+        teacher_response_note,
+        responded_at,
+        created_at,
+        teachers (
+          id,
+          slug,
+          avatar_url,
+          highest_education,
+          town_area,
+          city,
+          profiles (
+            full_name,
+            email,
+            phone
+          )
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    const { data: shortlists } = await supabase
+      .from('school_shortlists')
+      .select(`
+        id,
+        created_at,
+        teachers (
+          id,
+          slug,
+          avatar_url,
+          highest_education,
+          experience_years,
+          town_area,
+          city,
+          expected_salary,
+          profiles (full_name)
+        )
+      `);
+
+    const deletedIds = getDeletedRequestIds();
+    const combinedSent = (sentRequests ? [...sentRequests] : []).filter(r => !deletedIds.has(r.id));
+    const localReqs = getLocalContactRequests();
+    localReqs.forEach((lr) => {
+      if (!deletedIds.has(lr.id)) {
+        const alreadyInList = combinedSent.some((r) => r.id === lr.id);
+        if (!alreadyInList) {
+          combinedSent.unshift(lr);
+        }
+      }
+    });
+
+    return {
+      sentRequests: combinedSent,
+      shortlists: shortlists || [],
+    };
+  } catch (err) {
+    console.error('getSchoolDashboardData error:', err);
+    return { sentRequests: getLocalContactRequests(), shortlists: [] };
+  }
+}
+
+export async function getAdminDashboardData() {
+  try {
+    const supabase = createClient();
+    const [teachersRes, teacherProfilesRes, schoolsRes, schoolProfilesRes, requestsRes, reportsRes] = await Promise.all([
+      supabase.from('teachers').select(`
+        id,
+        user_id,
+        slug,
+        avatar_url,
+        highest_education,
+        institution,
+        additional_qualifications,
+        experience_years,
+        previous_school,
+        availability,
+        available_from,
+        town_area,
+        city,
+        district,
+        expected_salary,
+        about_me,
+        moderation_status,
+        created_at,
+        profiles (full_name, email, phone)
+      `).order('created_at', { ascending: false }),
+      supabase.from('profiles').select('*').eq('role', 'teacher').order('created_at', { ascending: false }),
+      supabase.from('schools').select('*').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('*').eq('role', 'school').order('created_at', { ascending: false }),
+      supabase.from('teacher_contact_requests').select('*').order('created_at', { ascending: false }),
+      supabase.from('reports').select('*'),
+    ]);
+
+    if (requestsRes.error) {
+      console.warn('Admin requests fetch notice:', requestsRes.error.message);
+    }
+
+    // Deduplicate schools by name / id (keeping the most recent record)
+    const rawSchools = schoolsRes.data || [];
+    const uniqueSchools: any[] = [];
+    const seenSchoolNames = new Set<string>();
+    const seenSchoolIds = new Set<string>();
+
+    for (const s of rawSchools) {
+      const nameKey = (s.school_name || '').toLowerCase().trim();
+      const idKey = s.id || s.user_id;
+      if (!seenSchoolNames.has(nameKey) && !seenSchoolIds.has(idKey)) {
+        seenSchoolNames.add(nameKey);
+        if (idKey) seenSchoolIds.add(idKey);
+        uniqueSchools.push(s);
+      }
+    }
+
+    // Merge registered school profiles from profiles table
+    const rawSchoolProfiles = schoolProfilesRes.data || [];
+    for (const sp of rawSchoolProfiles) {
+      const nameKey = (sp.full_name || '').toLowerCase().trim();
+      const idKey = sp.id;
+      if (!seenSchoolNames.has(nameKey) && !seenSchoolIds.has(idKey)) {
+        seenSchoolNames.add(nameKey);
+        seenSchoolIds.add(idKey);
+        uniqueSchools.push({
+          id: sp.id,
+          user_id: sp.id,
+          school_name: sp.full_name,
+          contact_person: `${sp.full_name} Administrator`,
+          school_type: 'Public',
+          area: 'Malir Town',
+          city: 'Karachi',
+          district: 'Malir',
+          moderation_status: 'active',
+          created_at: sp.created_at,
+          profiles: {
+            full_name: sp.full_name,
+            email: sp.email,
+            phone: sp.phone,
+          }
+        });
+      }
+    }
+
+    // Deduplicate teachers by ID and slug
+    const rawTeachers = teachersRes.data || [];
+    const uniqueTeachers: any[] = [];
+    const seenTeacherIds = new Set<string>();
+    const seenTeacherUserIds = new Set<string>();
+
+    for (const t of rawTeachers) {
+      const idKey = t.id;
+      const uKey = t.user_id;
+      if (!seenTeacherIds.has(idKey)) {
+        seenTeacherIds.add(idKey);
+        if (uKey) seenTeacherUserIds.add(uKey);
+        uniqueTeachers.push(t);
+      }
+    }
+
+    // Merge registered teacher profiles from profiles table if missing from teachers table
+    const rawTeacherProfiles = teacherProfilesRes.data || [];
+    for (const tp of rawTeacherProfiles) {
+      const uKey = tp.id;
+      if (!seenTeacherUserIds.has(uKey)) {
+        seenTeacherUserIds.add(uKey);
+        const cleanSlug = tp.full_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || 'teacher';
+        uniqueTeachers.push({
+          id: tp.id,
+          user_id: tp.id,
+          slug: cleanSlug,
+          avatar_url: '',
+          highest_education: 'Certified Educator',
+          institution: 'University of Karachi',
+          additional_qualifications: '',
+          experience_years: 2,
+          previous_school: '',
+          availability: 'Morning',
+          available_from: null,
+          town_area: 'Malir Town',
+          city: 'Karachi',
+          district: 'Malir',
+          expected_salary: 35000,
+          about_me: '',
+          moderation_status: 'active',
+          created_at: tp.created_at,
+          profiles: {
+            full_name: tp.full_name,
+            email: tp.email,
+            phone: tp.phone,
+          }
+        });
+      }
+    }
+
+    // Merge local registered teachers into admin view
+    const localTeachers = getLocalRegisteredTeachers();
+    localTeachers.forEach((lt) => {
+      const key = lt.slug || lt.id;
+      if (!seenTeacherIds.has(key)) {
+        seenTeacherIds.add(key);
+        uniqueTeachers.unshift({
+          id: lt.id,
+          user_id: lt.id,
+          slug: lt.slug,
+          avatar_url: lt.avatarUrl || '',
+          highest_education: lt.highestEducation || 'Certified Educator',
+          institution: (lt as any).institution || 'University',
+          additional_qualifications: (lt as any).additionalQualifications || '',
+          experience_years: lt.experienceYears || 0,
+          previous_school: (lt as any).previousSchool || '',
+          availability: lt.availability || 'Morning',
+          available_from: (lt as any).availableFrom || null,
+          town_area: lt.location.town || lt.location.area || 'Malir Town',
+          city: lt.location.city || 'Karachi',
+          district: lt.location.district || 'Malir',
+          expected_salary: lt.expectedSalary || 35000,
+          about_me: (lt as any).aboutMe || '',
+          moderation_status: 'active',
+          created_at: (lt as any).created_at || new Date().toISOString(),
+          profiles: {
+            full_name: lt.fullName,
+            email: (lt as any).email || `${lt.slug}@teachconnect.pk`,
+            phone: (lt as any).phone || '03001234567',
+          }
+        });
+      }
+    });
+
+    // Merge local contact requests into admin view and enrich with teacher and school details
+    const deletedIds = getDeletedRequestIds();
+    const rawRequests = (requestsRes.data || []).filter((r: any) => !deletedIds.has(r.id));
+    const combinedRequests = rawRequests.map((r: any) => {
+      const matchedTeacher = uniqueTeachers.find((t: any) => t.id === r.teacher_id || t.slug === r.teacher_id);
+      const matchedSchool = uniqueSchools.find((s: any) => s.id === r.school_id || (s.school_name && r.school_name && s.school_name.toLowerCase().trim() === r.school_name.toLowerCase().trim()));
+
+      return {
+        ...r,
+        teachers: r.teachers || (matchedTeacher ? {
+          id: matchedTeacher.id,
+          slug: matchedTeacher.slug,
+          avatar_url: matchedTeacher.avatar_url,
+          highest_education: matchedTeacher.highest_education,
+          town_area: matchedTeacher.town_area,
+          city: matchedTeacher.city,
+          profiles: matchedTeacher.profiles || { full_name: matchedTeacher.slug, email: '', phone: '' }
+        } : null),
+        schools: r.schools || (matchedSchool ? {
+          id: matchedSchool.id,
+          school_name: matchedSchool.school_name,
+          contact_person: matchedSchool.contact_person,
+          school_type: matchedSchool.school_type,
+          area: matchedSchool.area,
+          city: matchedSchool.city,
+          profiles: matchedSchool.profiles || { full_name: matchedSchool.school_name, email: '', phone: '' }
+        } : null)
+      };
+    });
+
+    const localReqs = getLocalContactRequests();
+    localReqs.forEach((lr) => {
+      if (!deletedIds.has(lr.id)) {
+        const alreadyInList = combinedRequests.some((r) => r.id === lr.id);
+        if (!alreadyInList) {
+          combinedRequests.unshift(lr);
+        }
+      }
+    });
+
+    return {
+      teachers: uniqueTeachers,
+      schools: uniqueSchools,
+      requests: combinedRequests,
+      reports: reportsRes.data || [],
+    };
+  } catch (err) {
+    console.error('getAdminDashboardData error:', err);
+    return { teachers: getLocalRegisteredTeachers() as any, schools: [], requests: getLocalContactRequests(), reports: [] };
+  }
+}
+
+export async function deleteUserAccount(
+  id: string,
+  role: 'Teacher' | 'School',
+  slugOrName?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = createClient();
+    invalidateTeacherCache();
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    if (role === 'Teacher') {
+      const teacherIdsToDelete = new Set<string>();
+      const userIdsToDelete = new Set<string>();
+
+      if (isUUID) {
+        teacherIdsToDelete.add(id);
+        const { data: t } = await supabase.from('teachers').select('user_id').eq('id', id).maybeSingle();
+        if (t?.user_id) userIdsToDelete.add(t.user_id);
+      }
+
+      if (slugOrName) {
+        const cleanSlug = slugOrName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const cleanName = slugOrName.trim();
+
+        // 1. Match by slug
+        const { data: bySlug } = await supabase
+          .from('teachers')
+          .select('id, user_id')
+          .or(`slug.eq.${cleanSlug},slug.ilike.%${cleanSlug}%`);
+        if (bySlug) {
+          bySlug.forEach(t => {
+            teacherIdsToDelete.add(t.id);
+            if (t.user_id) userIdsToDelete.add(t.user_id);
+          });
+        }
+
+        // 2. Match by profile name
+        const { data: byName } = await supabase
+          .from('profiles')
+          .select('id, teachers(id)')
+          .ilike('full_name', cleanName);
+        if (byName) {
+          byName.forEach((p: any) => {
+            userIdsToDelete.add(p.id);
+            const tArr = Array.isArray(p.teachers) ? p.teachers : (p.teachers ? [p.teachers] : []);
+            tArr.forEach((tItem: any) => {
+              if (tItem?.id) teacherIdsToDelete.add(tItem.id);
+            });
+          });
+        }
+      }
+
+      for (const tId of teacherIdsToDelete) {
+        await supabase.from('teacher_subjects').delete().eq('teacher_id', tId);
+        await supabase.from('teacher_classes').delete().eq('teacher_id', tId);
+        await supabase.from('teacher_skills').delete().eq('teacher_id', tId);
+        await supabase.from('teacher_contact_requests').delete().eq('teacher_id', tId);
+        await supabase.from('school_shortlists').delete().eq('teacher_id', tId);
+        await supabase.from('teachers').delete().eq('id', tId);
+      }
+
+      for (const uId of userIdsToDelete) {
+        await supabase.from('profiles').delete().eq('id', uId);
+      }
+
+      if (slugOrName) {
+        await supabase.from('profiles').delete().ilike('full_name', slugOrName.trim());
+      }
+    } else {
+      let schoolId = isUUID ? id : null;
+      let userId: string | null = null;
+
+      if (schoolId) {
+        const { data: s } = await supabase.from('schools').select('user_id').eq('id', schoolId).maybeSingle();
+        if (s) userId = s.user_id;
+        await supabase.from('schools').delete().eq('id', schoolId);
+      } else if (slugOrName) {
+        const { data: s } = await supabase.from('schools').select('id, user_id').ilike('school_name', slugOrName).maybeSingle();
+        if (s) {
+          userId = s.user_id;
+          await supabase.from('schools').delete().eq('id', s.id);
+        }
+      }
+
+      if (userId) {
+        await supabase.from('profiles').delete().eq('id', userId);
+      }
+      if (slugOrName) {
+        await supabase.from('profiles').delete().ilike('full_name', slugOrName.trim());
+      }
+    }
+
+    // Clean up local storage and force logout if deleted user is currently logged in
+    if (typeof window !== 'undefined') {
+      try {
+        const cleanSlug = slugOrName ? slugOrName.toLowerCase().replace(/[^a-z0-9]+/g, '-') : '';
+        const cleanTargetName = (slugOrName || '').toLowerCase().trim();
+
+        // 1. Remove teacher from local registered teachers array
+        const rawLocal = localStorage.getItem(LOCAL_TEACHERS_KEY);
+        if (rawLocal) {
+          const list: any[] = JSON.parse(rawLocal);
+          const updatedList = list.filter((t: any) => {
+            const tSlug = (t.slug || '').toLowerCase();
+            const tName = (t.fullName || '').toLowerCase();
+            const tId = t.id || '';
+            return tId !== id && tSlug !== cleanSlug && tName !== cleanTargetName;
+          });
+          localStorage.setItem(LOCAL_TEACHERS_KEY, JSON.stringify(updatedList));
+        }
+
+        // 2. Check if currently active logged-in user matches deleted account
+        const rawUser = localStorage.getItem('teachconnect_demo_user');
+        if (rawUser) {
+          const demoUser = JSON.parse(rawUser);
+          const demoEmail = (demoUser.email || '').toLowerCase();
+          const demoName = (demoUser.full_name || '').toLowerCase();
+          const demoId = demoUser.id || '';
+          const demoRole = (demoUser.role || '').toLowerCase();
+
+          const isMatchingCurrentSession = 
+            demoId === id ||
+            demoEmail === cleanTargetName ||
+            demoEmail.includes(cleanSlug) ||
+            demoName === cleanTargetName ||
+            demoName.includes(cleanTargetName) ||
+            (role === 'Teacher' && demoRole === 'teacher' && (demoName === cleanTargetName || demoId === id)) ||
+            (role === 'School' && demoRole === 'school' && (demoName === cleanTargetName || demoId === id));
+
+          if (isMatchingCurrentSession) {
+            localStorage.removeItem('teachconnect_demo_user');
+            localStorage.removeItem('teachconnect_card_draft');
+            sessionStorage.removeItem('teachconnect_card_draft');
+            sessionStorage.removeItem('temp_teacher_profile');
+            sessionStorage.removeItem('temp_school_profile');
+          }
+        }
+
+        if (role === 'Teacher') {
+          const draft = getCardDraft();
+          if (draft && ((draft.fullName || '').toLowerCase() === cleanTargetName || cleanSlug === id)) {
+            localStorage.removeItem('teachconnect_card_draft');
+            sessionStorage.removeItem('teachconnect_card_draft');
+          }
+          sessionStorage.removeItem('temp_teacher_profile');
+        } else {
+          localStorage.removeItem('temp_school_profile');
+          sessionStorage.removeItem('temp_school_profile');
+        }
+
+        // 3. Purge all linked contact requests for this deleted user
+        const filterReq = (r: any) => {
+          const tId = r.teacher_id || r.teacherId;
+          const tSlug = (r.teacherSlug || '').toLowerCase();
+          const sId = r.school_id || r.schoolId;
+          const sName = (r.school_name || r.schoolName || '').toLowerCase();
+          if (role === 'Teacher') {
+            return tId !== id && tSlug !== cleanSlug && !cleanTargetName.includes(tSlug);
+          } else {
+            return sId !== id && sName !== cleanTargetName;
+          }
+        };
+
+        const localReqRaw = localStorage.getItem(LOCAL_REQUESTS_KEY);
+        if (localReqRaw) {
+          try {
+            const list: any[] = JSON.parse(localReqRaw);
+            localStorage.setItem(LOCAL_REQUESTS_KEY, JSON.stringify(list.filter(filterReq)));
+          } catch {}
+        }
+
+        const sentReqRaw = localStorage.getItem('teachconnect_sent_requests');
+        if (sentReqRaw) {
+          try {
+            const list: any[] = JSON.parse(sentReqRaw);
+            localStorage.setItem('teachconnect_sent_requests', JSON.stringify(list.filter(filterReq)));
+          } catch {}
+        }
+
+        const inqReqRaw = localStorage.getItem('teachconnect_teacher_contact_requests');
+        if (inqReqRaw) {
+          try {
+            const list: any[] = JSON.parse(inqReqRaw);
+            localStorage.setItem('teachconnect_teacher_contact_requests', JSON.stringify(list.filter(filterReq)));
+          } catch {}
+        }
+
+        window.dispatchEvent(new Event('teachconnect_requests_updated'));
+
+        // 4. Broadcast account deletion event across tabs & active windows
+        localStorage.setItem(
+          'teachconnect_account_deleted_event',
+          JSON.stringify({
+            id,
+            role,
+            slugOrName,
+            timestamp: Date.now(),
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent('teachconnect_account_deleted', {
+            detail: { id, role, slugOrName },
+          })
+        );
+        window.dispatchEvent(new Event('teachconnect_auth_change'));
+      } catch (e) {
+        console.error('Local storage cleanup error:', e);
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('deleteUserAccount error:', err);
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function updateModerationStatus(
+  id: string,
+  role: 'Teacher' | 'School',
+  status: 'active' | 'suspended' | 'flagged',
+  slugOrName?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = createClient();
+    invalidateTeacherCache();
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    if (role === 'Teacher') {
+      let query = supabase
+        .from('teachers')
+        .update({
+          moderation_status: status,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (isUUID) {
+        query = query.eq('id', id);
+      } else if (slugOrName) {
+        const cleanSlug = slugOrName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        query = query.eq('slug', cleanSlug);
+      }
+
+      const { error } = await query;
+
+      if (error) {
+        console.error('Failed to update teacher moderation status in Supabase:', error.message || error);
+      }
+    } else {
+      if (isUUID) {
+        const { error } = await supabase
+          .from('schools')
+          .update({
+            moderation_status: status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id);
+
+        if (error) {
+          console.error('Failed to update school moderation status in Supabase:', error.message || error);
+        }
+      }
+    }
+
+    // Sync localStorage draft if teacher was suspended or restored
+    if (typeof window !== 'undefined') {
+      try {
+        const draft = getCardDraft();
+        if (draft && draft.fullName) {
+          const draftSlug = draft.fullName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          const isTarget = 
+            id === 'local-draft' ||
+            draftSlug === slugOrName ||
+            draft.fullName.toLowerCase() === (slugOrName || '').toLowerCase() ||
+            draftSlug === id;
+
+          if (isTarget) {
+            draft.moderationStatus = status === 'suspended' ? 'suspended' : 'active';
+            if (status === 'suspended') {
+              draft.isPublished = false;
+            }
+            localStorage.setItem('teachconnect_card_draft', JSON.stringify(draft));
+            sessionStorage.setItem('teachconnect_card_draft', JSON.stringify(draft));
+          }
+        }
+      } catch (e) {
+        console.error('Draft moderation sync error:', e);
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('updateModerationStatus error:', err);
+    return { success: false, error: err?.message };
+  }
+}
+
+/**
+ * Delete a contact request permanently (Admin action).
+ * Removes request from Supabase teacher_contact_requests and synchronizes local storage caches.
+ */
+export async function deleteContactRequest(requestId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!requestId) {
+      return { success: false, error: 'Request ID is required' };
+    }
+
+    // 1. Add to persistent deleted blacklist
+    addDeletedRequestId(requestId);
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId);
+
+    if (isUUID) {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('teacher_contact_requests')
+        .delete()
+        .eq('id', requestId);
+
+      if (error) {
+        console.error('Supabase contact request delete error:', error.message || error);
+      }
+    }
+
+    // Clean up local storage caches
+    if (typeof window !== 'undefined') {
+      try {
+        // 1. Clean from main local contact requests
+        const localRaw = localStorage.getItem(LOCAL_REQUESTS_KEY);
+        if (localRaw) {
+          const localList = JSON.parse(localRaw);
+          if (Array.isArray(localList)) {
+            const updated = localList.filter((r: any) => r.id !== requestId && r.requestId !== requestId);
+            localStorage.setItem(LOCAL_REQUESTS_KEY, JSON.stringify(updated));
+          }
+        }
+
+        // 2. Clean from sent requests
+        const sentRaw = localStorage.getItem('teachconnect_sent_requests');
+        if (sentRaw) {
+          const sentList = JSON.parse(sentRaw);
+          if (Array.isArray(sentList)) {
+            const updated = sentList.filter((r: any) => r.id !== requestId && r.requestId !== requestId);
+            localStorage.setItem('teachconnect_sent_requests', JSON.stringify(updated));
+          }
+        }
+
+        // 3. Clean from teacher inquiries
+        const inqRaw = localStorage.getItem('teachconnect_teacher_contact_requests');
+        if (inqRaw) {
+          const inqList = JSON.parse(inqRaw);
+          if (Array.isArray(inqList)) {
+            const updated = inqList.filter((r: any) => r.id !== requestId && r.requestId !== requestId);
+            localStorage.setItem('teachconnect_teacher_contact_requests', JSON.stringify(updated));
+          }
+        }
+
+        window.dispatchEvent(new Event('teachconnect_requests_updated'));
+      } catch (e) {
+        console.error('Local cache request deletion cleanup error:', e);
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('deleteContactRequest error:', err);
+    return { success: false, error: err?.message || 'Failed to delete contact request' };
+  }
+}
