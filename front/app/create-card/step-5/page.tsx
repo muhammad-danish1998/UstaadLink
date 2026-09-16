@@ -9,7 +9,10 @@ import {
   ArrowRight, 
   ArrowLeft,
   Info,
-  CheckCircle2
+  CheckCircle2,
+  Laptop,
+  Building,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -17,7 +20,7 @@ import { StepSidebar } from '@/components/teacher/StepSidebar';
 import { getCardDraft, saveCardDraft } from '@/lib/cardBuilderStorage';
 import { publishTeacherCard } from '@/services/teacherService';
 
-const salaryPresets = [
+const monthlySalaryPresets = [
   25000,
   35000,
   45000,
@@ -26,11 +29,22 @@ const salaryPresets = [
   90000,
 ];
 
+const hourlyRatePresets = [
+  500,
+  800,
+  1000,
+  1500,
+  2000,
+  2500,
+];
+
 export default function CreateCardStep5Page() {
   const router = useRouter();
 
+  const [teachingMode, setTeachingMode] = useState<'onsite' | 'online' | 'both'>('onsite');
   const [formData, setFormData] = useState({
     expectedSalary: 35000,
+    onlineHourlyRate: 800,
     aboutMe: 'Dedicated and passionate teacher with 3 years of experience in teaching English and Urdu. I believe in creating a positive and interactive learning environment for students.',
   });
 
@@ -38,8 +52,11 @@ export default function CreateCardStep5Page() {
 
   useEffect(() => {
     const draft = getCardDraft();
+    const mode = draft.teachingMode || 'onsite';
+    setTeachingMode(mode);
     setFormData({
-      expectedSalary: draft.expectedSalary || 35000,
+      expectedSalary: draft.monthlySalary || draft.expectedSalary || 35000,
+      onlineHourlyRate: draft.onlineHourlyRate || 800,
       aboutMe: draft.aboutMe || 'Dedicated and passionate teacher committed to fostering student success and academic excellence.',
     });
   }, []);
@@ -47,8 +64,16 @@ export default function CreateCardStep5Page() {
   const validate = () => {
     const errs: Record<string, string> = {};
 
-    if (!formData.expectedSalary || formData.expectedSalary < 10000) {
-      errs.expectedSalary = 'Please enter a valid monthly expected salary (minimum Rs. 10,000)';
+    if (teachingMode !== 'online') {
+      if (!formData.expectedSalary || formData.expectedSalary < 10000) {
+        errs.expectedSalary = 'Please enter a valid monthly expected salary (minimum Rs. 10,000)';
+      }
+    }
+
+    if (teachingMode !== 'onsite') {
+      if (!formData.onlineHourlyRate || formData.onlineHourlyRate < 100) {
+        errs.onlineHourlyRate = 'Please enter a valid online hourly rate (minimum Rs. 100/hr)';
+      }
     }
 
     if (!formData.aboutMe.trim()) {
@@ -66,7 +91,9 @@ export default function CreateCardStep5Page() {
     if (!validate()) return;
 
     const updated = saveCardDraft({
-      expectedSalary: Number(formData.expectedSalary),
+      expectedSalary: teachingMode === 'online' ? (formData.onlineHourlyRate * 40) : Number(formData.expectedSalary),
+      monthlySalary: teachingMode === 'online' ? undefined : Number(formData.expectedSalary),
+      onlineHourlyRate: teachingMode === 'onsite' ? undefined : Number(formData.onlineHourlyRate),
       aboutMe: formData.aboutMe.trim(),
     });
 
@@ -116,62 +143,138 @@ export default function CreateCardStep5Page() {
             <form onSubmit={handleSubmit} className="space-y-6">
               
               <div className="border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  {teachingMode === 'online' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                      <Laptop className="w-3.5 h-3.5" /> Online Tutoring Rate
+                    </span>
+                  ) : teachingMode === 'both' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">
+                      <RefreshCw className="w-3.5 h-3.5" /> On-site &amp; Online Rates
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      <Building className="w-3.5 h-3.5" /> School Monthly Salary
+                    </span>
+                  )}
+                </div>
                 <h3 className="text-lg font-bold text-slate-900">
-                  Expected Salary &amp; Introduction
+                  {teachingMode === 'online' ? 'Online Tutoring Rate & Bio' : 'Expected Salary & Introduction'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Set transparent salary expectations and introduce yourself to hiring schools.
+                  Set transparent pricing expectations and introduce yourself to hiring schools and students.
                 </p>
               </div>
 
-              {/* Salary Input & Presets */}
-              <div className="space-y-3">
-                <Input
-                  label="Expected Monthly Salary (PKR)"
-                  type="number"
-                  min="10000"
-                  step="1000"
-                  placeholder="e.g. 35000"
-                  value={formData.expectedSalary}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value) || 0;
-                    setFormData((prev) => ({ ...prev, expectedSalary: val }));
-                    if (errors.expectedSalary) setErrors((prev) => ({ ...prev, expectedSalary: '' }));
-                  }}
-                  error={errors.expectedSalary}
-                  helperText={formData.expectedSalary > 0 ? `Display on card: ${formatPKR(formData.expectedSalary)} / month` : undefined}
-                  icon={<Banknote className="w-4 h-4" />}
-                  required
-                />
+              {/* Monthly Salary Input & Presets (For On-site & Both) */}
+              {teachingMode !== 'online' && (
+                <div className="space-y-3 p-4 sm:p-5 rounded-2xl bg-blue-50/30 border border-blue-100">
+                  <div className="flex items-center gap-2 mb-1 text-slate-900 font-bold text-sm">
+                    <Building className="w-4 h-4 text-blue-600" />
+                    <span>On-site Monthly Salary</span>
+                  </div>
+                  <Input
+                    label="Expected Monthly Salary (PKR)"
+                    type="number"
+                    min="10000"
+                    step="1000"
+                    placeholder="e.g. 35000"
+                    value={formData.expectedSalary}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setFormData((prev) => ({ ...prev, expectedSalary: val }));
+                      if (errors.expectedSalary) setErrors((prev) => ({ ...prev, expectedSalary: '' }));
+                    }}
+                    error={errors.expectedSalary}
+                    helperText={formData.expectedSalary > 0 ? `Display on card: ${formatPKR(formData.expectedSalary)} / month` : undefined}
+                    icon={<Banknote className="w-4 h-4" />}
+                    required
+                  />
 
-                {/* Quick Salary Pills */}
-                <div>
-                  <span className="text-[11px] font-medium text-slate-500 block mb-1.5">
-                    Quick Select Common Ranges:
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {salaryPresets.map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => {
-                          setFormData((prev) => ({ ...prev, expectedSalary: preset }));
-                          if (errors.expectedSalary) setErrors((prev) => ({ ...prev, expectedSalary: '' }));
-                        }}
-                        className={`
-                          text-xs px-3 py-1.5 rounded-lg border font-medium transition-all cursor-pointer
-                          ${formData.expectedSalary === preset
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
-                          }
-                        `.trim()}
-                      >
-                        {formatPKR(preset)}
-                      </button>
-                    ))}
+                  {/* Quick Salary Pills */}
+                  <div>
+                    <span className="text-[11px] font-medium text-slate-500 block mb-1.5">
+                      Quick Select Monthly Ranges:
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {monthlySalaryPresets.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            setFormData((prev) => ({ ...prev, expectedSalary: preset }));
+                            if (errors.expectedSalary) setErrors((prev) => ({ ...prev, expectedSalary: '' }));
+                          }}
+                          className={`
+                            text-xs px-3 py-1.5 rounded-lg border font-medium transition-all cursor-pointer
+                            ${formData.expectedSalary === preset
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-200'
+                            }
+                          `.trim()}
+                        >
+                          {formatPKR(preset)} / mo
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Online Hourly Rate Input & Presets (For Online & Both) */}
+              {teachingMode !== 'onsite' && (
+                <div className="space-y-3 p-4 sm:p-5 rounded-2xl bg-purple-50/30 border border-purple-100">
+                  <div className="flex items-center gap-2 mb-1 text-slate-900 font-bold text-sm">
+                    <Laptop className="w-4 h-4 text-purple-600" />
+                    <span>Online Hourly Rate</span>
+                  </div>
+                  <Input
+                    label="Expected Online Tutoring Rate (PKR / Hour)"
+                    type="number"
+                    min="100"
+                    step="100"
+                    placeholder="e.g. 800"
+                    value={formData.onlineHourlyRate}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setFormData((prev) => ({ ...prev, onlineHourlyRate: val }));
+                      if (errors.onlineHourlyRate) setErrors((prev) => ({ ...prev, onlineHourlyRate: '' }));
+                    }}
+                    error={errors.onlineHourlyRate}
+                    helperText={formData.onlineHourlyRate > 0 ? `Display on card: ${formatPKR(formData.onlineHourlyRate)} / hour` : undefined}
+                    icon={<Banknote className="w-4 h-4" />}
+                    required
+                  />
+
+                  {/* Quick Hourly Rate Pills */}
+                  <div>
+                    <span className="text-[11px] font-medium text-slate-500 block mb-1.5">
+                      Quick Select Hourly Rates:
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {hourlyRatePresets.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            setFormData((prev) => ({ ...prev, onlineHourlyRate: preset }));
+                            if (errors.onlineHourlyRate) setErrors((prev) => ({ ...prev, onlineHourlyRate: '' }));
+                          }}
+                          className={`
+                            text-xs px-3 py-1.5 rounded-lg border font-medium transition-all cursor-pointer
+                            ${formData.onlineHourlyRate === preset
+                              ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                              : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-200'
+                            }
+                          `.trim()}
+                        >
+                          {formatPKR(preset)} / hr
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* About Me / Bio Textarea */}
               <div className="space-y-1.5 pt-2">
@@ -185,21 +288,17 @@ export default function CreateCardStep5Page() {
                     setFormData((prev) => ({ ...prev, aboutMe: e.target.value }));
                     if (errors.aboutMe) setErrors((prev) => ({ ...prev, aboutMe: '' }));
                   }}
-                  placeholder="Share a brief overview of your teaching approach, passion, and strengths..."
+                  placeholder="Introduce yourself, your teaching philosophy, and key strengths..."
                   className={`
-                    w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400
-                    transition-all duration-200 outline-none resize-none
-                    focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600
-                    ${errors.aboutMe ? 'border-red-400 focus:border-red-500' : 'border-slate-200 hover:border-slate-300'}
+                    w-full rounded-2xl border bg-white p-4 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400
+                    focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all resize-none
+                    ${errors.aboutMe ? 'border-red-500 bg-red-50/20' : 'border-slate-200'}
                   `.trim()}
                 />
-                <div className="flex items-center justify-between text-[11px] text-slate-500">
-                  <span>Highlighted on your full profile view when schools inspect your card.</span>
-                  <span>{formData.aboutMe.length} characters</span>
+                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                  <span>{formData.aboutMe.length} characters (min. 20)</span>
+                  {errors.aboutMe && <span className="text-red-500 font-semibold">{errors.aboutMe}</span>}
                 </div>
-                {errors.aboutMe && (
-                  <p className="text-xs text-red-600 font-medium mt-1">{errors.aboutMe}</p>
-                )}
               </div>
 
               {/* Navigation Buttons */}
@@ -211,7 +310,7 @@ export default function CreateCardStep5Page() {
                   href="/create-card/step-4"
                   icon={<ArrowLeft className="w-4 h-4" />}
                 >
-                  Back
+                  Back: Mode &amp; Location
                 </Button>
 
                 <Button
@@ -221,9 +320,10 @@ export default function CreateCardStep5Page() {
                   icon={<ArrowRight className="w-4 h-4" />}
                   className="px-6 font-semibold shadow-md shadow-blue-500/20"
                 >
-                  Next: Review Card
+                  Next: Review Profile
                 </Button>
               </div>
+
             </form>
           </main>
         </div>

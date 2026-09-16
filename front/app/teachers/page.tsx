@@ -18,7 +18,9 @@ import {
   Sparkles,
   UserPlus,
   Lock,
-  Building
+  Building,
+  Laptop,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -32,6 +34,13 @@ import {
   getUcOptionsForTown,
   normalizeTown
 } from '@/lib/malirLocations';
+
+const teachingModeOptions = [
+  { value: '', label: 'All Modes (On-site & Online)' },
+  { value: 'onsite', label: '🏫 On-site School Only' },
+  { value: 'online', label: '💻 Online Tutoring Only' },
+  { value: 'both', label: '🔄 Both (On-site + Online)' },
+];
 
 const subjectOptions = [
   { value: '', label: 'All Subjects' },
@@ -81,17 +90,20 @@ function FindTeachersContent() {
   const initialSubject = searchParams.get('subject') || '';
   const initialTown = searchParams.get('town') || '';
   const initialUc = searchParams.get('uc') || '';
+  const initialMode = searchParams.get('mode') || '';
 
   const [teachers, setTeachers] = useState<TeacherCardData[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState(initialQuery);
+  const [selectedTeachingMode, setSelectedTeachingMode] = useState(initialMode);
   const [selectedSubject, setSelectedSubject] = useState(initialSubject);
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedTown, setSelectedTown] = useState(initialTown);
   const [selectedUc, setSelectedUc] = useState(initialUc);
   const [selectedAvailability, setSelectedAvailability] = useState('');
   const [selectedExperience, setSelectedExperience] = useState('');
-  const [maxSalary, setMaxSalary] = useState<number>(75000);
+  const [maxSalary, setMaxSalary] = useState<number>(90000);
+  const [maxHourlyRate, setMaxHourlyRate] = useState<number>(3000);
   const [sortBy, setSortBy] = useState<'relevance' | 'salaryAsc' | 'experienceDesc'>('relevance');
 
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -135,19 +147,34 @@ function FindTeachersContent() {
 
   const resetFilters = () => {
     setSearchTerm('');
+    setSelectedTeachingMode('');
     setSelectedSubject('');
     setSelectedClass('');
     setSelectedTown('');
     setSelectedUc('');
     setSelectedAvailability('');
     setSelectedExperience('');
-    setMaxSalary(75000);
+    setMaxSalary(90000);
+    setMaxHourlyRate(3000);
     setSortBy('relevance');
   };
 
   const filteredTeachers = useMemo(() => {
     return teachers
       .filter((t) => {
+        const mode = t.teachingMode || 'onsite';
+
+        // Teaching Mode Filter
+        if (selectedTeachingMode) {
+          if (selectedTeachingMode === 'onsite') {
+            if (mode !== 'onsite' && mode !== 'both') return false;
+          } else if (selectedTeachingMode === 'online') {
+            if (mode !== 'online' && mode !== 'both') return false;
+          } else if (selectedTeachingMode === 'both') {
+            if (mode !== 'both') return false;
+          }
+        }
+
         // Search Term Filter
         if (searchTerm.trim()) {
           const term = searchTerm.toLowerCase();
@@ -168,8 +195,9 @@ function FindTeachersContent() {
           if (!t.classes.includes(selectedClass)) return false;
         }
 
-        // Town Filter
+        // Town Filter (Only for teachers with physical location)
         if (selectedTown) {
+          if (mode === 'online') return false; // online-only teachers don't match specific physical town
           const normSelected = normalizeTown(selectedTown);
           const townMatch = 
             normalizeTown(t.location.town) === normSelected ||
@@ -178,8 +206,9 @@ function FindTeachersContent() {
           if (!townMatch) return false;
         }
 
-        // UC Filter
+        // UC Filter (Only for teachers with physical location)
         if (selectedUc) {
+          if (mode === 'online') return false;
           const ucMatch = 
             (t.location.uc && t.location.uc.toLowerCase() === selectedUc.toLowerCase()) ||
             t.location.area.toLowerCase().includes(selectedUc.toLowerCase());
@@ -197,15 +226,26 @@ function FindTeachersContent() {
           if (t.experienceYears < expThreshold) return false;
         }
 
-        // Salary Filter
-        if (maxSalary && t.expectedSalary > maxSalary) {
-          return false;
+        // Monthly Salary Filter (Only for on-site or both teachers)
+        if (mode !== 'online' && maxSalary && maxSalary < 90000) {
+          const salary = t.monthlySalary ?? t.expectedSalary;
+          if (salary > maxSalary) return false;
+        }
+
+        // Hourly Rate Filter (Only for online or both teachers)
+        if (mode !== 'onsite' && maxHourlyRate && maxHourlyRate < 3000) {
+          const rate = t.onlineHourlyRate ?? 800;
+          if (rate > maxHourlyRate) return false;
         }
 
         return true;
       })
       .sort((a, b) => {
-        if (sortBy === 'salaryAsc') return a.expectedSalary - b.expectedSalary;
+        if (sortBy === 'salaryAsc') {
+          const salA = a.monthlySalary ?? a.expectedSalary;
+          const salB = b.monthlySalary ?? b.expectedSalary;
+          return salA - salB;
+        }
         if (sortBy === 'experienceDesc') return b.experienceYears - a.experienceYears;
         // Default relevance
         return (b.matchPercentage || 90) - (a.matchPercentage || 90);
@@ -213,6 +253,7 @@ function FindTeachersContent() {
   }, [
     teachers,
     searchTerm,
+    selectedTeachingMode,
     selectedSubject,
     selectedClass,
     selectedTown,
@@ -220,6 +261,7 @@ function FindTeachersContent() {
     selectedAvailability,
     selectedExperience,
     maxSalary,
+    maxHourlyRate,
     sortBy,
   ]);
 
@@ -240,13 +282,13 @@ function FindTeachersContent() {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2 border border-blue-200/80">
               <MapPin className="w-3.5 h-3.5" />
-              <span>District Malir, Karachi Directory</span>
+              <span>District Malir &amp; Online Educator Directory</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              Find Teachers in District Malir
+              Find Verified Teachers
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Search and filter verified educator profiles across Malir Town, Gadap Town, and Ibrahim Hyderi Town.
+              Hire educators for on-site school positions in District Malir or online classes across Pakistan.
             </p>
           </div>
 
@@ -259,7 +301,7 @@ function FindTeachersContent() {
               icon={<SlidersHorizontal className="w-4 h-4" />}
               className="lg:hidden"
             >
-              Filters {(searchTerm || selectedSubject || selectedClass || selectedTown || selectedUc || selectedAvailability || selectedExperience) ? '(Active)' : ''}
+              Filters {(searchTerm || selectedTeachingMode || selectedSubject || selectedClass || selectedTown || selectedUc || selectedAvailability || selectedExperience) ? '(Active)' : ''}
             </Button>
 
             <Button
@@ -309,33 +351,46 @@ function FindTeachersContent() {
               </div>
             </div>
 
-            {/* Fixed District Indicator */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                District
-              </label>
-              <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-800 flex items-center justify-between">
-                <span>District Malir</span>
-                <Lock className="w-3.5 h-3.5 text-slate-400" />
+            {/* Teaching Mode Filter */}
+            <Select
+              label="Teaching Mode"
+              options={teachingModeOptions}
+              value={selectedTeachingMode}
+              onChange={(e) => setSelectedTeachingMode(e.target.value)}
+            />
+
+            {/* Location Section (Only shown when not strictly filtered for Online) */}
+            {selectedTeachingMode !== 'online' && (
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                {/* Fixed District Indicator */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    District (On-site)
+                  </label>
+                  <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span>District Malir</span>
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  </div>
+                </div>
+
+                {/* Town Dropdown */}
+                <Select
+                  label="Town / TMC"
+                  options={townOptions}
+                  value={selectedTown}
+                  onChange={(e) => handleTownChange(e.target.value)}
+                />
+
+                {/* UC Dependent Dropdown */}
+                <Select
+                  label="Union Council (UC)"
+                  options={ucOptions}
+                  value={selectedUc}
+                  onChange={(e) => setSelectedUc(e.target.value)}
+                  disabled={!selectedTown}
+                />
               </div>
-            </div>
-
-            {/* Town Dropdown */}
-            <Select
-              label="Town"
-              options={townOptions}
-              value={selectedTown}
-              onChange={(e) => handleTownChange(e.target.value)}
-            />
-
-            {/* UC Dependent Dropdown */}
-            <Select
-              label="Union Council (UC)"
-              options={ucOptions}
-              value={selectedUc}
-              onChange={(e) => setSelectedUc(e.target.value)}
-              disabled={!selectedTown}
-            />
+            )}
 
             {/* Subject Dropdown */}
             <Select
@@ -355,7 +410,7 @@ function FindTeachersContent() {
 
             {/* Availability Shift */}
             <Select
-              label="Availability"
+              label="Availability Shift"
               options={availabilityOptions}
               value={selectedAvailability}
               onChange={(e) => setSelectedAvailability(e.target.value)}
@@ -369,26 +424,51 @@ function FindTeachersContent() {
               onChange={(e) => setSelectedExperience(e.target.value)}
             />
 
-            {/* Salary Range Slider */}
-            <div className="space-y-2 pt-2 border-t border-slate-100">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-700">Max Salary (PKR)</span>
-                <span className="font-bold text-blue-700">{formatPKR(maxSalary)}</span>
+            {/* Monthly Salary Range Slider (For On-site & Both) */}
+            {selectedTeachingMode !== 'online' && (
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700">Max Monthly Salary</span>
+                  <span className="font-bold text-blue-700">{formatPKR(maxSalary)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="20000"
+                  max="90000"
+                  step="5000"
+                  value={maxSalary}
+                  onChange={(e) => setMaxSalary(parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400">
+                  <span>Rs. 20,000</span>
+                  <span>Rs. 90,000+</span>
+                </div>
               </div>
-              <input
-                type="range"
-                min="20000"
-                max="90000"
-                step="5000"
-                value={maxSalary}
-                onChange={(e) => setMaxSalary(parseInt(e.target.value))}
-                className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-              />
-              <div className="flex justify-between text-[10px] text-slate-400">
-                <span>Rs. 20,000</span>
-                <span>Rs. 90,000+</span>
+            )}
+
+            {/* Online Hourly Rate Slider (For Online & Both) */}
+            {selectedTeachingMode !== 'onsite' && (
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-purple-900">Max Online Rate / Hr</span>
+                  <span className="font-bold text-purple-700">{formatPKR(maxHourlyRate)}/hr</span>
+                </div>
+                <input
+                  type="range"
+                  min="500"
+                  max="3000"
+                  step="100"
+                  value={maxHourlyRate}
+                  onChange={(e) => setMaxHourlyRate(parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-purple-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400">
+                  <span>Rs. 500/hr</span>
+                  <span>Rs. 3,000+/hr</span>
+                </div>
               </div>
-            </div>
+            )}
 
             <Button
               variant="primary"
@@ -398,7 +478,7 @@ function FindTeachersContent() {
               icon={<Search className="w-3.5 h-3.5" />}
               className="mt-2 font-semibold"
             >
-              Search
+              Apply Filters
             </Button>
           </aside>
 
@@ -408,7 +488,12 @@ function FindTeachersContent() {
             {/* Results bar & Sorting header */}
             <div className="bg-white rounded-2xl border border-slate-200/90 shadow-soft p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-xs sm:text-sm text-slate-600">
-                Showing <strong className="text-slate-900 font-bold">{filteredTeachers.length}</strong> verified teachers in <span className="font-semibold text-blue-700">{selectedTown || 'District Malir'}</span>
+                Showing <strong className="text-slate-900 font-bold">{filteredTeachers.length}</strong> verified teachers 
+                {selectedTeachingMode === 'online' ? (
+                  <span className="font-semibold text-purple-700"> (Online Tutoring)</span>
+                ) : (
+                  <> in <span className="font-semibold text-blue-700">{selectedTown || 'District Malir'}</span></>
+                )}
                 {selectedUc && <span> &bull; UC: {selectedUc}</span>}
               </div>
 
@@ -458,23 +543,12 @@ function FindTeachersContent() {
                   {teachers.length === 0 ? 'No Teacher Cards Published Yet' : 'No Teachers Matched Your Filters'}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
-                  {teachers.length === 0 
-                    ? 'Be the first educator in District Malir to create and publish a free professional Teacher Profile Card!' 
-                    : 'Try selecting a different Town or Union Council (UC), or adjust your subject and salary filters to find more teaching candidates.'
-                  }
+                  Try adjusting your filters, selecting a different teaching mode, or clearing search criteria.
                 </p>
-                <div className="pt-2 flex items-center justify-center gap-3">
-                  {teachers.length === 0 ? (
-                    <Link href="/register/teacher">
-                      <Button variant="primary" size="sm" className="font-bold shadow-md shadow-blue-500/20">
-                        Create Free Teacher Card &rarr;
-                      </Button>
-                    </Link>
-                  ) : (
-                    <Button variant="outline" size="sm" onClick={resetFilters} icon={<RotateCcw className="w-3.5 h-3.5" />}>
-                      Clear All Filters
-                    </Button>
-                  )}
+                <div className="pt-2">
+                  <Button variant="outline" size="sm" onClick={resetFilters} icon={<RotateCcw className="w-3.5 h-3.5" />}>
+                    Clear All Filters
+                  </Button>
                 </div>
               </div>
             )}
@@ -499,34 +573,60 @@ function FindTeachersContent() {
               </button>
             </div>
 
-            {/* Fixed District Indicator */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                District
-              </label>
-              <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-800 flex items-center justify-between">
-                <span>District Malir</span>
-                <Lock className="w-3.5 h-3.5 text-slate-400" />
+            {/* Keyword Search Input */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-700">Keyword Search</label>
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Subject, teacher name, UC..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                />
               </div>
             </div>
 
-            {/* Town Dropdown */}
+            {/* Teaching Mode Filter */}
             <Select
-              label="Town"
-              options={townOptions}
-              value={selectedTown}
-              onChange={(e) => handleTownChange(e.target.value)}
+              label="Teaching Mode"
+              options={teachingModeOptions}
+              value={selectedTeachingMode}
+              onChange={(e) => setSelectedTeachingMode(e.target.value)}
             />
 
-            {/* UC Dependent Dropdown */}
-            <Select
-              label="Union Council (UC)"
-              options={ucOptions}
-              value={selectedUc}
-              onChange={(e) => setSelectedUc(e.target.value)}
-              disabled={!selectedTown}
-            />
+            {/* Location Section */}
+            {selectedTeachingMode !== 'online' && (
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    District (On-site)
+                  </label>
+                  <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span>District Malir</span>
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  </div>
+                </div>
 
+                <Select
+                  label="Town / TMC"
+                  options={townOptions}
+                  value={selectedTown}
+                  onChange={(e) => handleTownChange(e.target.value)}
+                />
+
+                <Select
+                  label="Union Council (UC)"
+                  options={ucOptions}
+                  value={selectedUc}
+                  onChange={(e) => setSelectedUc(e.target.value)}
+                  disabled={!selectedTown}
+                />
+              </div>
+            )}
+
+            {/* Subject Dropdown */}
             <Select
               label="Subject"
               options={subjectOptions}
@@ -534,6 +634,7 @@ function FindTeachersContent() {
               onChange={(e) => setSelectedSubject(e.target.value)}
             />
 
+            {/* Class Dropdown */}
             <Select
               label="Class Level"
               options={classOptions}
@@ -541,19 +642,67 @@ function FindTeachersContent() {
               onChange={(e) => setSelectedClass(e.target.value)}
             />
 
+            {/* Availability Shift */}
             <Select
-              label="Availability"
+              label="Availability Shift"
               options={availabilityOptions}
               value={selectedAvailability}
               onChange={(e) => setSelectedAvailability(e.target.value)}
             />
 
+            {/* Experience */}
             <Select
               label="Experience"
               options={experienceOptions}
               value={selectedExperience}
               onChange={(e) => setSelectedExperience(e.target.value)}
             />
+
+            {/* Monthly Salary Range Slider */}
+            {selectedTeachingMode !== 'online' && (
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700">Max Monthly Salary</span>
+                  <span className="font-bold text-blue-700">{formatPKR(maxSalary)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="20000"
+                  max="90000"
+                  step="5000"
+                  value={maxSalary}
+                  onChange={(e) => setMaxSalary(parseInt(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg appearance-none"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400">
+                  <span>Rs. 20k</span>
+                  <span>Rs. 90k+</span>
+                </div>
+              </div>
+            )}
+
+            {/* Online Hourly Rate Range Slider */}
+            {selectedTeachingMode !== 'onsite' && (
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700">Max Online Rate</span>
+                  <span className="font-bold text-blue-700">{formatPKR(maxHourlyRate)} / hr</span>
+                </div>
+                <input
+                  type="range"
+                  min="500"
+                  max="5000"
+                  step="250"
+                  value={maxHourlyRate}
+                  onChange={(e) => setMaxHourlyRate(parseInt(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg appearance-none"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400">
+                  <span>Rs. 500/hr</span>
+                  <span>Rs. 5,000+/hr</span>
+                </div>
+              </div>
+            )}
 
             <div className="pt-2 flex items-center justify-between gap-3 border-t border-slate-100">
               <Button

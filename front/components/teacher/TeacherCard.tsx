@@ -11,7 +11,10 @@ import {
   Banknote,
   Send,
   Eye,
-  BookOpen
+  BookOpen,
+  Laptop,
+  Building,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { formatLocation } from '@/lib/malirLocations';
@@ -26,6 +29,7 @@ export interface TeacherCardData {
   classes: string;
   experienceYears: number;
   availability: 'Morning' | 'Evening' | 'Both';
+  teachingMode?: 'onsite' | 'online' | 'both';
   location: {
     area: string;
     district: string;
@@ -34,6 +38,8 @@ export interface TeacherCardData {
     uc?: string;
   };
   expectedSalary: number;
+  monthlySalary?: number;
+  onlineHourlyRate?: number;
   isVerified?: boolean;
   matchPercentage?: number;
 }
@@ -51,11 +57,22 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
   showMatch = false,
   isOwnCard = false,
 }) => {
-  const formattedSalary = new Intl.NumberFormat('en-PK', {
+  const mode = teacher.teachingMode || 'onsite';
+
+  const monthlyAmount = teacher.monthlySalary ?? teacher.expectedSalary ?? 35000;
+  const formattedMonthlySalary = new Intl.NumberFormat('en-PK', {
     style: 'currency',
     currency: 'PKR',
     maximumFractionDigits: 0,
-  }).format(teacher.expectedSalary);
+  }).format(monthlyAmount);
+
+  const formattedHourlyRate = teacher.onlineHourlyRate
+    ? new Intl.NumberFormat('en-PK', {
+        style: 'currency',
+        currency: 'PKR',
+        maximumFractionDigits: 0,
+      }).format(teacher.onlineHourlyRate)
+    : null;
 
   const displayLocation = formatLocation(
     teacher.location.uc,
@@ -71,18 +88,38 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
       {/* Main Content Section */}
       <div className="space-y-5">
         
-        {/* Header: Status Pills */}
-        <div className="flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-2xs">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            <span>Available for Hire</span>
-          </span>
-
-          {showMatch && teacher.matchPercentage && (
-            <span className="text-xs sm:text-sm font-bold text-emerald-800 bg-emerald-100/80 px-3 py-1 rounded-xl">
-              {teacher.matchPercentage}% Match
+        {/* Header: Mode Badge + Status Pills */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          {/* Teaching Mode Badge */}
+          {mode === 'online' ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-purple-50 text-purple-700 border border-purple-200/80 shadow-2xs">
+              <Laptop className="w-3.5 h-3.5 text-purple-600" />
+              <span>Online Only</span>
+            </span>
+          ) : mode === 'both' ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-teal-50 text-teal-700 border border-teal-200/80 shadow-2xs">
+              <RefreshCw className="w-3.5 h-3.5 text-teal-600" />
+              <span>On-site + Online</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-blue-50 text-blue-700 border border-blue-200/80 shadow-2xs">
+              <Building className="w-3.5 h-3.5 text-blue-600" />
+              <span>On-site School</span>
             </span>
           )}
+
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span>Available</span>
+            </span>
+
+            {showMatch && teacher.matchPercentage && (
+              <span className="text-xs font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-xl">
+                {teacher.matchPercentage}% Match
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Profile Info: Avatar + Name + Degree */}
@@ -160,7 +197,7 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-slate-500 font-semibold shrink-0">
               <Briefcase className="w-4 h-4 text-blue-600/80 shrink-0" />
-              <span>Teaching Experience:</span>
+              <span>Experience:</span>
             </span>
             <span className="font-extrabold text-slate-900 text-right">
               {teacher.experienceYears} {teacher.experienceYears === 1 ? 'Year' : 'Years'}
@@ -171,34 +208,73 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-slate-500 font-semibold shrink-0">
               <Clock className="w-4 h-4 text-blue-600/80 shrink-0" />
-              <span>Availability / Shift:</span>
+              <span>Availability:</span>
             </span>
             <span className="font-extrabold text-slate-900 text-right">
               {teacher.availability} Shift
             </span>
           </div>
 
-          {/* Location */}
-          <div className="flex items-center justify-between gap-3">
-            <span className="flex items-center gap-2 text-slate-500 font-semibold shrink-0">
-              <MapPin className="w-4 h-4 text-blue-600/80 shrink-0" />
-              <span>Location:</span>
-            </span>
-            <span className="font-extrabold text-slate-900 text-right truncate max-w-[190px] sm:max-w-[240px]" title={displayLocation}>
-              {displayLocation}
-            </span>
-          </div>
+          {/* Location (Only for on-site or both) */}
+          {mode !== 'online' && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-slate-500 font-semibold shrink-0">
+                <MapPin className="w-4 h-4 text-blue-600/80 shrink-0" />
+                <span>On-site Location:</span>
+              </span>
+              <span className="font-extrabold text-slate-900 text-right truncate max-w-[190px] sm:max-w-[240px]" title={displayLocation}>
+                {displayLocation}
+              </span>
+            </div>
+          )}
 
-          {/* Expected Salary Banner */}
-          <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-200/80">
-            <span className="flex items-center gap-2 text-slate-700 font-bold shrink-0">
-              <Banknote className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Expected Salary:</span>
-            </span>
-            <span className="font-black text-blue-700 text-base sm:text-lg text-right">
-              {formattedSalary}
-            </span>
-          </div>
+          {/* Pricing Row(s) */}
+          {mode === 'onsite' && (
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-200/80">
+              <span className="flex items-center gap-2 text-slate-700 font-bold shrink-0">
+                <Banknote className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Expected Monthly:</span>
+              </span>
+              <span className="font-black text-blue-700 text-base sm:text-lg text-right">
+                {formattedMonthlySalary} / mo
+              </span>
+            </div>
+          )}
+
+          {mode === 'online' && (
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-200/80">
+              <span className="flex items-center gap-2 text-slate-700 font-bold shrink-0">
+                <Laptop className="w-4 h-4 text-purple-600 shrink-0" />
+                <span>Online Rate:</span>
+              </span>
+              <span className="font-black text-purple-700 text-base sm:text-lg text-right">
+                {formattedHourlyRate || 'Rs. 800'} / hr
+              </span>
+            </div>
+          )}
+
+          {mode === 'both' && (
+            <div className="pt-3 border-t border-slate-200/80 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-slate-700 font-bold text-xs">
+                  <Building className="w-3.5 h-3.5 text-blue-600" />
+                  <span>On-site Monthly:</span>
+                </span>
+                <span className="font-black text-blue-700 text-sm sm:text-base">
+                  {formattedMonthlySalary} / mo
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-slate-700 font-bold text-xs">
+                  <Laptop className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Online Hourly:</span>
+                </span>
+                <span className="font-black text-purple-700 text-sm sm:text-base">
+                  {formattedHourlyRate || 'Rs. 800'} / hr
+                </span>
+              </div>
+            </div>
+          )}
 
         </div>
 

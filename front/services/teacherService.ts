@@ -61,9 +61,11 @@ export interface TeacherFilterParams {
   district?: string;
   town?: string;
   uc?: string;
+  teachingMode?: string; // 'all' | 'onsite' | 'online' | 'both'
   availability?: string;
   minExperience?: number;
   maxSalary?: number;
+  maxHourlyRate?: number;
   sortBy?: 'relevance' | 'newest' | 'experience' | 'salary_asc' | 'salary_desc';
 }
 
@@ -86,6 +88,10 @@ export function saveLocalRegisteredTeacher(teacherData: any) {
     const list: any[] = raw ? JSON.parse(raw) : [];
     const cleanSlug = (teacherData.slug || teacherData.fullName || 'teacher').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
     
+    const mode = teacherData.teachingMode || teacherData.teaching_mode || 'onsite';
+    const monthlyAmt = mode === 'online' ? null : Number(teacherData.monthlySalary ?? teacherData.expectedSalary ?? teacherData.expected_salary) || 35000;
+    const hourlyAmt = mode === 'onsite' ? null : Number(teacherData.onlineHourlyRate ?? teacherData.online_hourly_rate) || 800;
+
     const formattedTeacher = {
       id: teacherData.id || `teacher-${cleanSlug}-${Date.now()}`,
       slug: cleanSlug,
@@ -98,14 +104,17 @@ export function saveLocalRegisteredTeacher(teacherData: any) {
       classes: teacherData.classes || 'Class 9 - 10 (Matric)',
       experienceYears: Number(teacherData.experienceYears ?? teacherData.experience_years) || 2,
       availability: teacherData.availability || 'Morning',
+      teachingMode: mode,
       location: {
-        area: teacherData.uc ? `${teacherData.uc}, ${teacherData.town || teacherData.town_area || 'Malir Town'}` : (teacherData.town || teacherData.town_area || 'Malir Town'),
+        area: teacherData.uc ? `${teacherData.uc}, ${teacherData.town || teacherData.town_area || 'Malir'}` : (teacherData.town || teacherData.town_area || 'Malir'),
         district: teacherData.district || 'Malir',
         city: teacherData.city || 'Karachi',
-        town: teacherData.town || teacherData.town_area || 'Malir Town',
+        town: teacherData.town || teacherData.town_area || 'Malir',
         uc: teacherData.uc || '',
       },
-      expectedSalary: Number(teacherData.expectedSalary ?? teacherData.expected_salary) || 35000,
+      expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
+      monthlySalary: monthlyAmt,
+      onlineHourlyRate: hourlyAmt,
       aboutMe: teacherData.aboutMe || teacherData.about_me || '',
       isVerified: true,
       published: true,
@@ -141,7 +150,10 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
         district,
         town_area,
         uc,
+        teaching_mode,
         expected_salary,
+        monthly_salary,
+        online_hourly_rate,
         published_at,
         profiles (
           full_name
@@ -199,6 +211,9 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
         const subs = t.teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
         const cls = t.teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean) || [];
         const prof = Array.isArray(t.profiles) ? t.profiles[0] : t.profiles;
+        const mode = t.teaching_mode || 'onsite';
+        const monthlyAmt = mode === 'online' ? null : Number(t.monthly_salary ?? t.expected_salary) || 35000;
+        const hourlyAmt = mode === 'onsite' ? null : Number(t.online_hourly_rate) || 800;
         
         teachersList.push({
           id: t.id,
@@ -210,14 +225,17 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
           classes: cls.length > 0 ? cls.join(', ') : '6 - 10',
           experienceYears: Number(t.experience_years) || 0,
           availability: t.availability || 'Morning',
+          teachingMode: mode,
           location: {
-            area: t.uc ? `${t.uc}, ${t.town_area || 'Malir Town'}` : (t.town_area || 'Malir Town'),
+            area: t.uc ? `${t.uc}, ${t.town_area || 'Malir'}` : (t.town_area || 'Malir'),
             district: t.district || 'Malir',
             city: t.city || 'Karachi',
-            town: t.town_area || 'Malir Town',
+            town: t.town_area || 'Malir',
             uc: t.uc || '',
           },
-          expectedSalary: Number(t.expected_salary) || 35000,
+          expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
+          monthlySalary: monthlyAmt ?? undefined,
+          onlineHourlyRate: hourlyAmt ?? undefined,
           isVerified: true,
         });
       });
@@ -234,8 +252,21 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
       }
     });
 
-    // Apply in-memory filters for local entries if any filters are set
+    // Apply in-memory filters
     let filteredList = teachersList;
+
+    // Teaching Mode Filter
+    if (filters?.teachingMode && filters.teachingMode !== 'all' && filters.teachingMode !== 'All') {
+      const filterMode = filters.teachingMode.toLowerCase();
+      if (filterMode === 'onsite') {
+        filteredList = filteredList.filter(t => (t.teachingMode || 'onsite') === 'onsite' || t.teachingMode === 'both');
+      } else if (filterMode === 'online') {
+        filteredList = filteredList.filter(t => t.teachingMode === 'online' || t.teachingMode === 'both');
+      } else if (filterMode === 'both') {
+        filteredList = filteredList.filter(t => t.teachingMode === 'both');
+      }
+    }
+
     if (filters?.query && filters.query.trim()) {
       const q = filters.query.toLowerCase().trim();
       filteredList = filteredList.filter(t => 
@@ -268,6 +299,22 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
         (t.location.uc && t.location.uc.toLowerCase().includes(uLower)) ||
         t.location.area.toLowerCase().includes(uLower)
       );
+    }
+
+    if (filters?.maxSalary && filters.maxSalary < 150000) {
+      filteredList = filteredList.filter(t => {
+        if (t.teachingMode === 'online') return true;
+        const salary = t.monthlySalary ?? t.expectedSalary;
+        return salary <= (filters.maxSalary || 150000);
+      });
+    }
+
+    if (filters?.maxHourlyRate && filters.maxHourlyRate < 5000) {
+      filteredList = filteredList.filter(t => {
+        if (t.teachingMode === 'onsite') return true;
+        const rate = t.onlineHourlyRate ?? 800;
+        return rate <= (filters.maxHourlyRate || 5000);
+      });
     }
 
     return filteredList;
@@ -316,7 +363,11 @@ export async function getTeacherBySlug(slug: string) {
         city,
         district,
         town_area,
+        uc,
+        teaching_mode,
         expected_salary,
+        monthly_salary,
+        online_hourly_rate,
         about_me,
         published,
         moderation_status,
@@ -362,8 +413,11 @@ export async function getTeacherBySlug(slug: string) {
           previousSchool: (localT as any).previousSchool || '',
           availability: localT.availability,
           availableFrom: (localT as any).availableFrom,
+          teachingMode: localT.teachingMode || 'onsite',
           location: localT.location,
           expectedSalary: localT.expectedSalary,
+          monthlySalary: localT.monthlySalary,
+          onlineHourlyRate: localT.onlineHourlyRate,
           aboutMe: (localT as any).aboutMe || 'Dedicated educator passionate about student success.',
           isVerified: true,
         };
@@ -391,6 +445,9 @@ export async function getTeacherBySlug(slug: string) {
     const subs = data.teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
     const cls = data.teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean) || [];
     const sks = data.teacher_skills?.map((tsk: any) => tsk.skills?.name).filter(Boolean) || [];
+    const mode = data.teaching_mode || 'onsite';
+    const monthlyAmt = mode === 'online' ? null : Number(data.monthly_salary ?? data.expected_salary) || 35000;
+    const hourlyAmt = mode === 'onsite' ? null : Number(data.online_hourly_rate) || 800;
 
     return {
       id: data.id,
@@ -407,12 +464,17 @@ export async function getTeacherBySlug(slug: string) {
       previousSchool: data.previous_school || '',
       availability: data.availability,
       availableFrom: data.available_from,
+      teachingMode: mode,
       location: {
         area: data.town_area,
         district: data.district,
         city: data.city,
+        town: data.town_area,
+        uc: data.uc || '',
       },
-      expectedSalary: Number(data.expected_salary),
+      expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
+      monthlySalary: monthlyAmt ?? undefined,
+      onlineHourlyRate: hourlyAmt ?? undefined,
       aboutMe: data.about_me || '',
       isVerified: true,
     };
@@ -436,8 +498,11 @@ export async function getTeacherBySlug(slug: string) {
         previousSchool: (localT as any).previousSchool || '',
         availability: localT.availability,
         availableFrom: (localT as any).availableFrom,
+        teachingMode: localT.teachingMode || 'onsite',
         location: localT.location,
         expectedSalary: localT.expectedSalary,
+        monthlySalary: localT.monthlySalary,
+        onlineHourlyRate: localT.onlineHourlyRate,
         aboutMe: (localT as any).aboutMe || '',
         isVerified: true,
       };
@@ -719,6 +784,14 @@ export async function publishTeacherCard(draftData: any) {
       }
     }
 
+    const mode: 'onsite' | 'online' | 'both' = 
+      draftData.teachingMode === 'online' || draftData.teachingMode === 'both' 
+        ? draftData.teachingMode 
+        : 'onsite';
+
+    const monthlySalary = mode === 'online' ? null : Math.max(10000, Number(draftData.monthlySalary || draftData.expectedSalary) || 35000);
+    const onlineHourlyRate = mode === 'onsite' ? null : Math.max(100, Number(draftData.onlineHourlyRate) || 800);
+
     const teacherPayload = {
       user_id: userId,
       slug: targetSlug,
@@ -735,9 +808,12 @@ export async function publishTeacherCard(draftData: any) {
       available_from: draftData.availableFrom ? new Date(draftData.availableFrom).toISOString().split('T')[0] : null,
       city: 'Karachi',
       district: MALIR_DISTRICT,
-      town_area: normalizeTown(draftData.town || draftData.area) || 'Malir',
+      town_area: mode === 'online' && !draftData.town && !draftData.area ? 'Malir' : (normalizeTown(draftData.town || draftData.area) || 'Malir'),
       uc: draftData.uc ? sanitizeInput(draftData.uc) : null,
-      expected_salary: Math.max(10000, Number(draftData.expectedSalary) || 35000),
+      teaching_mode: mode,
+      monthly_salary: monthlySalary,
+      online_hourly_rate: onlineHourlyRate,
+      expected_salary: monthlySalary ?? (onlineHourlyRate ? onlineHourlyRate * 40 : 35000),
       about_me: draftData.aboutMe || '',
       published: draftData.isPublished !== false,
       search_indexable: Boolean(draftData.isSearchIndexable),

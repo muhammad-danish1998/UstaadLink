@@ -22,6 +22,8 @@ export interface Profile {
   updated_at: string;
 }
 
+export type TeachingMode = 'onsite' | 'online' | 'both';
+
 export interface Teacher {
   id: string;
   user_id: string;
@@ -41,7 +43,10 @@ export interface Teacher {
   district: string;
   town_area: string;
   uc?: string | null;
+  teaching_mode: TeachingMode;
   expected_salary: number;
+  monthly_salary?: number | null;
+  online_hourly_rate?: number | null;
   about_me?: string | null;
   published: boolean;
   search_indexable: boolean;

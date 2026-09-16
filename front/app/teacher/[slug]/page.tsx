@@ -284,10 +284,27 @@ export default function TeacherProfilePage() {
                   )}
                 </div>
 
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 mx-auto sm:mx-0 w-fit">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Available for Hire
-                </span>
+                <div className="flex items-center gap-2 justify-center sm:justify-end flex-wrap">
+                  {/* Teaching Mode Badge */}
+                  {teacher.teachingMode === 'online' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                      <span>💻 Online Only</span>
+                    </span>
+                  ) : teacher.teachingMode === 'both' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">
+                      <span>🔄 On-site + Online</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      <span>🏫 On-site School</span>
+                    </span>
+                  )}
+
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 mx-auto sm:mx-0 w-fit">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Available for Hire
+                  </span>
+                </div>
               </div>
 
               <p className="text-sm font-semibold text-slate-600 flex items-center justify-center sm:justify-start gap-1.5">
@@ -300,10 +317,12 @@ export default function TeacherProfilePage() {
                   <Briefcase className="w-3.5 h-3.5 text-slate-400" />
                   {teacher.experienceYears} Years Experience
                 </span>
-                <span className="flex items-center gap-1 font-medium">
-                  <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                  <span>{formatLocation(teacher.uc, teacher.town || teacher.area, teacher.district || 'Malir')}</span>
-                </span>
+                {teacher.teachingMode !== 'online' && (
+                  <span className="flex items-center gap-1 font-medium">
+                    <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>{formatLocation(teacher.uc, teacher.town || teacher.area, teacher.district || 'Malir')}</span>
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -339,10 +358,15 @@ export default function TeacherProfilePage() {
 
             <div className="p-3">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Expected Salary
+                {teacher.teachingMode === 'online' ? 'Online Hourly Rate' : 'Expected Salary'}
               </span>
               <span className="text-sm font-bold text-blue-700">
-                {formattedSalary}
+                {teacher.teachingMode === 'online' 
+                  ? `${teacher.onlineHourlyRate ? 'Rs. ' + Number(teacher.onlineHourlyRate).toLocaleString('en-PK') : 'Rs. 800'} / hr`
+                  : teacher.teachingMode === 'both'
+                    ? `${formattedSalary} / mo (Online: Rs. ${Number(teacher.onlineHourlyRate || 800).toLocaleString('en-PK')}/hr)`
+                    : formattedSalary
+                }
               </span>
             </div>
           </div>
@@ -401,24 +425,34 @@ export default function TeacherProfilePage() {
               </div>
             </div>
 
-            {/* Availability & Location Details */}
+            {/* Availability & Mode/Location Details */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
                 <span className="font-bold text-slate-800 flex items-center gap-1.5">
                   <Clock className="w-4 h-4 text-blue-600" />
-                  Teaching Shifts
+                  Teaching Shifts &amp; Mode
                 </span>
-                <p className="text-slate-600">Preferred Shift: <strong>{teacher.availability}</strong></p>
+                <p className="text-slate-600">Mode: <strong>{teacher.teachingMode === 'online' ? 'Online Remote' : teacher.teachingMode === 'both' ? 'On-site + Online' : 'On-site School'}</strong></p>
+                <p className="text-slate-600">Shift: <strong>{teacher.availability}</strong></p>
                 <p className="text-slate-500 text-[11px]">Joining: Available {teacher.availableFrom}</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
                 <span className="font-bold text-slate-800 flex items-center gap-1.5">
                   <MapPin className="w-4 h-4 text-blue-600" />
-                  Preferred Location
+                  {teacher.teachingMode === 'online' ? 'Delivery Mode' : 'Preferred On-site Location'}
                 </span>
-                <p className="text-slate-600">Location: <strong>{formatLocation(teacher.uc, teacher.town || teacher.area, teacher.district || 'Malir')}</strong></p>
-                <p className="text-slate-500 text-[11px]">District: {teacher.district || 'Malir'}</p>
+                {teacher.teachingMode === 'online' ? (
+                  <>
+                    <p className="text-slate-600">Classes: <strong>Online Tutoring (Zoom / Google Meet)</strong></p>
+                    <p className="text-slate-500 text-[11px]">Rate: Rs. {Number(teacher.onlineHourlyRate || 800).toLocaleString('en-PK')} / hour</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-slate-600">Location: <strong>{formatLocation(teacher.uc, teacher.town || teacher.area, teacher.district || 'Malir')}</strong></p>
+                    <p className="text-slate-500 text-[11px]">District: {teacher.district || 'Malir'}</p>
+                  </>
+                )}
               </div>
             </div>
 

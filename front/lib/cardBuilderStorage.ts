@@ -20,7 +20,8 @@ export interface TeacherCardDraft {
   previousSchool?: string;
   teachingSkills?: string[];
 
-  // Step 4: Location & Availability
+  // Step 4: Teaching Mode, Location & Availability
+  teachingMode?: 'onsite' | 'online' | 'both';
   availability?: 'Morning' | 'Evening' | 'Both';
   availableFrom?: string;
   town?: string;
@@ -31,6 +32,8 @@ export interface TeacherCardDraft {
 
   // Step 5: Salary & Bio
   expectedSalary?: number;
+  monthlySalary?: number;
+  onlineHourlyRate?: number;
   aboutMe?: string;
 
   // Step 7: Publishing settings
@@ -142,13 +145,16 @@ export const defaultDraft: TeacherCardDraft = {
   experienceYears: 0,
   previousSchool: '',
   teachingSkills: [],
+  teachingMode: 'onsite',
   availability: 'Morning',
-  town: 'Malir Town',
+  town: 'Malir',
   uc: 'Qaidabad',
-  area: 'Malir Town',
+  area: 'Malir',
   district: 'Malir',
   city: 'Karachi',
   expectedSalary: 35000,
+  monthlySalary: 35000,
+  onlineHourlyRate: undefined,
   aboutMe: '',
   isPublished: true,
   isSearchIndexable: false,
