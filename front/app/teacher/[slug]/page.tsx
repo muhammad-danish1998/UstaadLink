@@ -52,7 +52,7 @@ export default function TeacherProfilePage() {
     async function loadTeacher() {
       setIsLoading(true);
       try {
-        const liveTeacher = await getTeacherBySlug(slug);
+        const liveTeacher: any = await getTeacherBySlug(slug);
         if (liveTeacher) {
           if (liveTeacher.isSuspended) {
             setTeacher({

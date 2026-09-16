@@ -115,9 +115,7 @@ function FindTeachersContent() {
     async function loadData() {
       setIsLoading(true);
       try {
-        const liveTeachers = await getPublishedTeachers({
-          district: MALIR_DISTRICT,
-        });
+        const liveTeachers = await getPublishedTeachers();
         setTeachers(liveTeachers || []);
       } catch (e) {
         console.error('Failed to load teachers from Supabase', e);

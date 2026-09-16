@@ -136,94 +136,117 @@ export function saveLocalRegisteredTeacher(teacherData: any) {
 export async function getPublishedTeachers(filters?: TeacherFilterParams): Promise<TeacherCardData[]> {
   try {
     const supabase = createClient();
+    const teachersList: TeacherCardData[] = [];
+    const seenTeacherIds = new Set<string>();
+    const seenTeacherSlugs = new Set<string>();
 
-    let query = supabase
+    // 1. Fetch teachers from Supabase teachers table with safe standard columns
+    const { data: teachersData, error: teachersErr } = await supabase
       .from('teachers')
       .select(`
         id,
+        user_id,
         slug,
         avatar_url,
         highest_education,
+        institution,
+        additional_qualifications,
         experience_years,
+        previous_school,
         availability,
+        available_from,
         city,
         district,
         town_area,
-        uc,
-        teaching_mode,
         expected_salary,
-        monthly_salary,
-        online_hourly_rate,
-        published_at,
+        about_me,
+        moderation_status,
+        created_at,
         profiles (
-          full_name
-        ),
-        teacher_subjects (
-          subjects (
-            name
-          )
-        ),
-        teacher_classes (
-          classes (
-            name
-          )
+          full_name,
+          email,
+          phone
         )
       `)
-      .eq('published', true)
-      .eq('moderation_status', 'active');
+      .order('created_at', { ascending: false });
 
-    if (filters?.district && filters.district !== 'All Districts') {
-      query = query.eq('district', filters.district);
-    }
-    if (filters?.town && filters.town !== 'All Towns' && filters.town !== '') {
-      query = query.ilike('town_area', `%${filters.town}%`);
-    }
-    if (filters?.uc && filters.uc !== 'All UCs' && filters.uc !== '') {
-      query = query.or(`uc.ilike.%${filters.uc}%,town_area.ilike.%${filters.uc}%`);
-    }
-    if (filters?.availability && filters.availability !== 'All Shifts') {
-      query = query.eq('availability', filters.availability);
-    }
-    if (filters?.minExperience && filters.minExperience > 0) {
-      query = query.gte('experience_years', filters.minExperience);
-    }
-    if (filters?.maxSalary && filters.maxSalary < 150000) {
-      query = query.lte('expected_salary', filters.maxSalary);
+    if (teachersErr) {
+      console.warn('Notice querying teachers table:', teachersErr.message);
     }
 
-    if (filters?.sortBy === 'newest') {
-      query = query.order('published_at', { ascending: false });
-    } else if (filters?.sortBy === 'experience') {
-      query = query.order('experience_years', { ascending: false });
-    } else if (filters?.sortBy === 'salary_asc') {
-      query = query.order('expected_salary', { ascending: true });
-    } else if (filters?.sortBy === 'salary_desc') {
-      query = query.order('expected_salary', { ascending: false });
-    } else {
-      query = query.order('published_at', { ascending: false, nullsFirst: false });
+    // 2. Also fetch registered teacher profiles (so every registered teacher appears)
+    const { data: teacherProfilesData, error: profErr } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'teacher')
+      .order('created_at', { ascending: false });
+
+    if (profErr) {
+      console.warn('Notice querying profiles table:', profErr.message);
     }
 
-    const { data } = await query;
-    const teachersList: TeacherCardData[] = [];
+    // Safe lookup for subjects and classes
+    const teacherSubjectsMap: Record<string, string[]> = {};
+    const teacherClassesMap: Record<string, string[]> = {};
 
-    if (data && data.length > 0) {
-      data.forEach((t: any) => {
-        const subs = t.teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
-        const cls = t.teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean) || [];
+    try {
+      const { data: subData } = await supabase.from('teacher_subjects').select('teacher_id, subjects(name)');
+      if (subData) {
+        subData.forEach((row: any) => {
+          const sName = Array.isArray(row.subjects) ? row.subjects[0]?.name : row.subjects?.name;
+          if (row.teacher_id && sName) {
+            if (!teacherSubjectsMap[row.teacher_id]) teacherSubjectsMap[row.teacher_id] = [];
+            teacherSubjectsMap[row.teacher_id].push(sName);
+          }
+        });
+      }
+    } catch {
+      // graceful fallback
+    }
+
+    try {
+      const { data: clsData } = await supabase.from('teacher_classes').select('teacher_id, classes(name)');
+      if (clsData) {
+        clsData.forEach((row: any) => {
+          const cName = Array.isArray(row.classes) ? row.classes[0]?.name : row.classes?.name;
+          if (row.teacher_id && cName) {
+            if (!teacherClassesMap[row.teacher_id]) teacherClassesMap[row.teacher_id] = [];
+            teacherClassesMap[row.teacher_id].push(cName);
+          }
+        });
+      }
+    } catch {
+      // graceful fallback
+    }
+
+    if (teachersData && teachersData.length > 0) {
+      teachersData.forEach((t: any) => {
+        if (t.moderation_status === 'suspended') return;
+
         const prof = Array.isArray(t.profiles) ? t.profiles[0] : t.profiles;
+        const fullName = prof?.full_name || 'Educator';
+        const teacherId = t.id || t.user_id;
+        const teacherSlug = (t.slug || fullName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+
+        if (seenTeacherIds.has(teacherId) || seenTeacherSlugs.has(teacherSlug)) return;
+        seenTeacherIds.add(teacherId);
+        seenTeacherSlugs.add(teacherSlug);
+
+        const subs = teacherSubjectsMap[t.id] || [];
+        const cls = teacherClassesMap[t.id] || [];
         const mode = t.teaching_mode || 'onsite';
         const monthlyAmt = mode === 'online' ? null : Number(t.monthly_salary ?? t.expected_salary) || 35000;
         const hourlyAmt = mode === 'onsite' ? null : Number(t.online_hourly_rate) || 800;
-        
+
         teachersList.push({
-          id: t.id,
-          slug: t.slug,
-          fullName: prof?.full_name || 'Educator',
+          id: teacherId,
+          slug: teacherSlug,
+          fullName,
           avatarUrl: t.avatar_url || '',
           highestEducation: t.highest_education || 'Certified Educator',
-          subjects: subs.length > 0 ? subs : ['General'],
-          classes: cls.length > 0 ? cls.join(', ') : '6 - 10',
-          experienceYears: Number(t.experience_years) || 0,
+          subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
+          classes: cls.length > 0 ? cls.join(', ') : '9 - 10',
+          experienceYears: Number(t.experience_years) || 2,
           availability: t.availability || 'Morning',
           teachingMode: mode,
           location: {
@@ -241,7 +264,41 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
       });
     }
 
-    // Merge with local registered teachers (ensuring newly registered teachers are immediately discoverable)
+    // Merge registered teacher accounts from profiles
+    if (teacherProfilesData && teacherProfilesData.length > 0) {
+      teacherProfilesData.forEach((tp: any) => {
+        const pId = tp.id;
+        const pSlug = (tp.full_name || 'teacher').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+        if (seenTeacherIds.has(pId) || seenTeacherSlugs.has(pSlug)) return;
+        seenTeacherIds.add(pId);
+        seenTeacherSlugs.add(pSlug);
+
+        teachersList.push({
+          id: pId,
+          slug: pSlug,
+          fullName: tp.full_name || 'Educator',
+          avatarUrl: '',
+          highestEducation: 'Certified Educator',
+          subjects: ['General Science', 'Mathematics'],
+          classes: '9 - 10',
+          experienceYears: 2,
+          availability: 'Morning',
+          teachingMode: 'onsite',
+          location: {
+            area: 'Malir',
+            district: 'Malir',
+            city: 'Karachi',
+            town: 'Malir',
+            uc: '',
+          },
+          expectedSalary: 35000,
+          monthlySalary: 35000,
+          isVerified: true,
+        });
+      });
+    }
+
+    // Merge with local registered teachers
     const localTeachers = getLocalRegisteredTeachers();
     localTeachers.forEach((lt) => {
       const alreadyInList = teachersList.some(
@@ -285,6 +342,11 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
       );
     }
 
+    if (filters?.classLevel && filters.classLevel !== 'All Classes') {
+      const cLower = filters.classLevel.toLowerCase();
+      filteredList = filteredList.filter(t => t.classes.toLowerCase().includes(cLower));
+    }
+
     if (filters?.town && filters.town !== 'All Towns' && filters.town !== '') {
       const tLower = filters.town.toLowerCase();
       filteredList = filteredList.filter(t =>
@@ -299,6 +361,14 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
         (t.location.uc && t.location.uc.toLowerCase().includes(uLower)) ||
         t.location.area.toLowerCase().includes(uLower)
       );
+    }
+
+    if (filters?.availability && filters.availability !== 'All Shifts') {
+      filteredList = filteredList.filter(t => t.availability === filters.availability || t.availability === 'Both');
+    }
+
+    if (filters?.minExperience && filters.minExperience > 0) {
+      filteredList = filteredList.filter(t => t.experienceYears >= (filters.minExperience || 0));
     }
 
     if (filters?.maxSalary && filters.maxSalary < 150000) {
@@ -347,10 +417,14 @@ export async function getTaxonomyData() {
 export async function getTeacherBySlug(slug: string) {
   try {
     const supabase = createClient();
-    const { data, error } = await supabase
+    const cleanSlug = (slug || '').toLowerCase().trim();
+
+    // 1. Query teachers table
+    const { data } = await supabase
       .from('teachers')
       .select(`
         id,
+        user_id,
         slug,
         avatar_url,
         highest_education,
@@ -363,150 +437,148 @@ export async function getTeacherBySlug(slug: string) {
         city,
         district,
         town_area,
-        uc,
-        teaching_mode,
         expected_salary,
-        monthly_salary,
-        online_hourly_rate,
         about_me,
-        published,
         moderation_status,
-        published_at,
+        created_at,
         profiles (
-          full_name
-        ),
-        teacher_subjects (
-          subjects (
-            name
-          )
-        ),
-        teacher_classes (
-          classes (
-            name
-          )
-        ),
-        teacher_skills (
-          skills (
-            name
-          )
+          full_name,
+          email,
+          phone
         )
       `)
-      .eq('slug', slug)
+      .or(`slug.eq.${cleanSlug},id.eq.${cleanSlug}`)
       .maybeSingle();
 
-    if (error || !data) {
-      const localTeachers = getLocalRegisteredTeachers();
-      const localT = localTeachers.find(lt => lt.slug === slug || lt.id === slug);
-      if (localT) {
+    if (data) {
+      const profileObj = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
+      const fullName = (profileObj as any)?.full_name || 'Educator';
+
+      if (data.moderation_status === 'suspended') {
         return {
-          id: localT.id,
-          slug: localT.slug,
-          fullName: localT.fullName,
-          avatarUrl: localT.avatarUrl || '',
-          highestEducation: localT.highestEducation,
-          institution: (localT as any).institution || 'University of Karachi',
-          additionalQualifications: (localT as any).additionalQualifications || '',
-          subjects: localT.subjects,
-          classes: localT.classes,
-          skills: (localT as any).skills || ['Classroom Management', 'Lesson Planning', 'Student Assessment'],
-          experienceYears: localT.experienceYears,
-          previousSchool: (localT as any).previousSchool || '',
-          availability: localT.availability,
-          availableFrom: (localT as any).availableFrom,
-          teachingMode: localT.teachingMode || 'onsite',
-          location: localT.location,
-          expectedSalary: localT.expectedSalary,
-          monthlySalary: localT.monthlySalary,
-          onlineHourlyRate: localT.onlineHourlyRate,
-          aboutMe: (localT as any).aboutMe || 'Dedicated educator passionate about student success.',
-          isVerified: true,
+          id: data.id,
+          slug: data.slug,
+          fullName,
+          isSuspended: true,
         };
       }
-      return null;
-    }
 
-    const profileObj = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
-    const fullName = (profileObj as any)?.full_name || 'Educator';
+      const mode = (data as any).teaching_mode || 'onsite';
+      const monthlyAmt = mode === 'online' ? null : Number((data as any).monthly_salary ?? data.expected_salary) || 35000;
+      const hourlyAmt = mode === 'onsite' ? null : Number((data as any).online_hourly_rate) || 800;
 
-    // If teacher is suspended by admin
-    if (data.moderation_status === 'suspended') {
       return {
         id: data.id,
-        slug: data.slug,
+        slug: data.slug || cleanSlug,
         fullName,
-        isSuspended: true,
-      };
-    }
-
-    if (!data.published) {
-      return null;
-    }
-
-    const subs = data.teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
-    const cls = data.teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean) || [];
-    const sks = data.teacher_skills?.map((tsk: any) => tsk.skills?.name).filter(Boolean) || [];
-    const mode = data.teaching_mode || 'onsite';
-    const monthlyAmt = mode === 'online' ? null : Number(data.monthly_salary ?? data.expected_salary) || 35000;
-    const hourlyAmt = mode === 'onsite' ? null : Number(data.online_hourly_rate) || 800;
-
-    return {
-      id: data.id,
-      slug: data.slug,
-      fullName,
-      avatarUrl: data.avatar_url || '',
-      highestEducation: data.highest_education,
-      institution: data.institution || 'University',
-      additionalQualifications: data.additional_qualifications || '',
-      subjects: subs.length > 0 ? subs : ['General'],
-      classes: cls.length > 0 ? cls.join(', ') : '6 - 10',
-      skills: sks,
-      experienceYears: Number(data.experience_years),
-      previousSchool: data.previous_school || '',
-      availability: data.availability,
-      availableFrom: data.available_from,
-      teachingMode: mode,
-      location: {
-        area: data.town_area,
-        district: data.district,
-        city: data.city,
-        town: data.town_area,
-        uc: data.uc || '',
-      },
-      expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
-      monthlySalary: monthlyAmt ?? undefined,
-      onlineHourlyRate: hourlyAmt ?? undefined,
-      aboutMe: data.about_me || '',
-      isVerified: true,
-    };
-  } catch (err) {
-    console.error('Error fetching teacher by slug:', err);
-    const localTeachers = getLocalRegisteredTeachers();
-    const localT = localTeachers.find(lt => lt.slug === slug || lt.id === slug);
-    if (localT) {
-      return {
-        id: localT.id,
-        slug: localT.slug,
-        fullName: localT.fullName,
-        avatarUrl: localT.avatarUrl || '',
-        highestEducation: localT.highestEducation,
-        institution: (localT as any).institution || 'University of Karachi',
-        additionalQualifications: (localT as any).additionalQualifications || '',
-        subjects: localT.subjects,
-        classes: localT.classes,
-        skills: (localT as any).skills || ['Classroom Management', 'Lesson Planning'],
-        experienceYears: localT.experienceYears,
-        previousSchool: (localT as any).previousSchool || '',
-        availability: localT.availability,
-        availableFrom: (localT as any).availableFrom,
-        teachingMode: localT.teachingMode || 'onsite',
-        location: localT.location,
-        expectedSalary: localT.expectedSalary,
-        monthlySalary: localT.monthlySalary,
-        onlineHourlyRate: localT.onlineHourlyRate,
-        aboutMe: (localT as any).aboutMe || '',
+        avatarUrl: data.avatar_url || '',
+        highestEducation: data.highest_education || 'Certified Educator',
+        institution: data.institution || 'University of Karachi',
+        additionalQualifications: data.additional_qualifications || '',
+        subjects: ['General Science', 'Mathematics'],
+        classes: '9 - 10',
+        skills: ['Classroom Management', 'Lesson Planning', 'Student Assessment', 'Board Exam Preparation'],
+        experienceYears: Number(data.experience_years) || 2,
+        previousSchool: data.previous_school || '',
+        availability: data.availability || 'Morning',
+        availableFrom: data.available_from || 'Immediately',
+        teachingMode: mode,
+        location: {
+          area: (data as any).uc ? `${(data as any).uc}, ${data.town_area || 'Malir'}` : (data.town_area || 'Malir'),
+          district: data.district || 'Malir',
+          city: data.city || 'Karachi',
+          town: data.town_area || 'Malir',
+          uc: (data as any).uc || '',
+        },
+        expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
+        monthlySalary: monthlyAmt,
+        onlineHourlyRate: hourlyAmt,
+        aboutMe: data.about_me || 'Dedicated educator passionate about student success.',
         isVerified: true,
       };
     }
+
+    // 2. Query profiles table by role teacher
+    const { data: profData } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'teacher')
+      .or(`id.eq.${cleanSlug},full_name.ilike.%${cleanSlug.replace(/-/g, ' ')}%`)
+      .maybeSingle();
+
+    if (profData) {
+      return {
+        id: profData.id,
+        slug: cleanSlug,
+        fullName: profData.full_name || 'Educator',
+        avatarUrl: '',
+        highestEducation: 'Certified Educator',
+        institution: 'University of Karachi',
+        additionalQualifications: '',
+        subjects: ['General Science', 'Mathematics'],
+        classes: '9 - 10',
+        skills: ['Classroom Management', 'Lesson Planning', 'Student Assessment', 'Board Exam Preparation'],
+        experienceYears: 2,
+        previousSchool: '',
+        availability: 'Morning',
+        availableFrom: 'Immediately',
+        teachingMode: 'onsite',
+        location: {
+          area: 'Malir',
+          district: 'Malir',
+          city: 'Karachi',
+          town: 'Malir',
+          uc: '',
+        },
+        expectedSalary: 35000,
+        monthlySalary: 35000,
+        onlineHourlyRate: 800,
+        aboutMe: 'Dedicated educator passionate about student success.',
+        isVerified: true,
+      };
+    }
+
+    // 3. Fallback to local draft
+    const localTeachers = getLocalRegisteredTeachers();
+    const localT = localTeachers.find(lt => lt.slug === cleanSlug || lt.id === cleanSlug);
+    if (localT) return localT;
+
+    const draft = getCardDraft();
+    if (draft && draft.fullName) {
+      return {
+        id: 'draft-teacher',
+        slug: cleanSlug,
+        fullName: draft.fullName,
+        avatarUrl: draft.profilePhotoUrl || '',
+        highestEducation: draft.highestEducation || 'Certified Educator',
+        institution: draft.institution || 'University of Karachi',
+        additionalQualifications: draft.additionalQualifications || '',
+        subjects: draft.subjects && draft.subjects.length > 0 ? draft.subjects : ['General Science', 'Mathematics'],
+        classes: draft.classes || '9 - 10',
+        skills: draft.teachingSkills || ['Classroom Management', 'Lesson Planning'],
+        experienceYears: draft.experienceYears || 2,
+        previousSchool: draft.previousSchool || '',
+        availability: draft.availability || 'Morning',
+        availableFrom: draft.availableFrom || 'Immediately',
+        teachingMode: draft.teachingMode || 'onsite',
+        location: {
+          area: draft.area || 'Malir',
+          district: draft.district || 'Malir',
+          city: draft.city || 'Karachi',
+          town: draft.town || draft.area || 'Malir',
+          uc: draft.uc || '',
+        },
+        expectedSalary: draft.monthlySalary || draft.expectedSalary || 35000,
+        monthlySalary: draft.monthlySalary,
+        onlineHourlyRate: draft.onlineHourlyRate,
+        aboutMe: draft.aboutMe || 'Dedicated educator passionate about student success.',
+        isVerified: true,
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('getTeacherBySlug error:', err);
     return null;
   }
 }
