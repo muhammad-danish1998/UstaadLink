@@ -80,6 +80,12 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
     teacher.location.district || 'Malir'
   );
 
+  const [showAllSubjects, setShowAllSubjects] = React.useState(false);
+
+  const allSubjects = teacher.subjects || [];
+  const displayedSubjects = showAllSubjects ? allSubjects : allSubjects.slice(0, 3);
+  const remainingCount = allSubjects.length - 3;
+
   return (
     <article className="bg-white rounded-3xl border-2 border-slate-200/90 shadow-md hover:shadow-2xl hover:border-blue-400/80 hover:-translate-y-1.5 transition-all duration-300 p-6 sm:p-8 flex flex-col justify-between group relative overflow-hidden h-full">
       {/* Top Gradient Hover Accent */}
@@ -177,7 +183,7 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
 
         {/* Subjects & Class Badges */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          {teacher.subjects.map((subj) => (
+          {displayedSubjects.map((subj) => (
             <span
               key={subj}
               className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-blue-50 text-blue-700 border border-blue-200/80 shadow-2xs"
@@ -185,6 +191,22 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
               {subj}
             </span>
           ))}
+
+          {allSubjects.length > 3 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowAllSubjects(!showAllSubjects);
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-100/90 hover:bg-blue-200 text-blue-800 border border-blue-300/80 transition-all cursor-pointer shadow-2xs hover:scale-105"
+              title={showAllSubjects ? 'Click to show fewer subjects' : `Click to see ${remainingCount} more subject${remainingCount > 1 ? 's' : ''}`}
+            >
+              <span>{showAllSubjects ? 'Show less' : `+${remainingCount} see more`}</span>
+            </button>
+          )}
+
           <span className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 text-slate-700 border border-slate-200/90 shadow-2xs">
             Class {teacher.classes}
           </span>

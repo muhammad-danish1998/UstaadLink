@@ -31,6 +31,7 @@ import { formatLocation } from '@/lib/malirLocations';
 export default function CreateCardStep6ReviewPage() {
   const router = useRouter();
   const [draft, setDraft] = useState<TeacherCardDraft | null>(null);
+  const [showAllSubjects, setShowAllSubjects] = useState(false);
 
   useEffect(() => {
     const data = getCardDraft();
@@ -38,6 +39,10 @@ export default function CreateCardStep6ReviewPage() {
   }, []);
 
   if (!draft) return null;
+
+  const allSubjects = draft.subjects && draft.subjects.length > 0 ? draft.subjects : ['English', 'Urdu'];
+  const displayedSubjects = showAllSubjects ? allSubjects : allSubjects.slice(0, 3);
+  const remainingCount = allSubjects.length - 3;
 
   const mode = draft.teachingMode || 'onsite';
 
@@ -180,7 +185,7 @@ export default function CreateCardStep6ReviewPage() {
 
                 {/* Subjects & Class Badges */}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {(draft.subjects || ['English', 'Urdu']).map((subj) => (
+                  {displayedSubjects.map((subj) => (
                     <span
                       key={subj}
                       className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-blue-50 text-blue-700 border border-blue-200/80 shadow-2xs"
@@ -188,6 +193,22 @@ export default function CreateCardStep6ReviewPage() {
                       {subj}
                     </span>
                   ))}
+
+                  {allSubjects.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowAllSubjects(!showAllSubjects);
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-100/90 hover:bg-blue-200 text-blue-800 border border-blue-300/80 transition-all cursor-pointer shadow-2xs hover:scale-105"
+                      title={showAllSubjects ? 'Click to show fewer subjects' : `Click to see ${remainingCount} more subject${remainingCount > 1 ? 's' : ''}`}
+                    >
+                      <span>{showAllSubjects ? 'Show less' : `+${remainingCount} see more`}</span>
+                    </button>
+                  )}
+
                   <span className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 text-slate-700 border border-slate-200/90 shadow-2xs">
                     Class {draft.classes || '6 - 10'}
                   </span>

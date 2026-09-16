@@ -73,8 +73,8 @@ export const FeaturedTeachersSection: React.FC<FeaturedTeachersSectionProps> = (
 
       {/* Teacher Grid or Empty State */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3].map((n) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {[1, 2, 3, 4].map((n) => (
             <div
               key={n}
               className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 animate-pulse space-y-5 shadow-xs"
@@ -99,8 +99,8 @@ export const FeaturedTeachersSection: React.FC<FeaturedTeachersSectionProps> = (
           ))}
         </div>
       ) : teachers.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {teachers.slice(0, 6).map((teacher) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {teachers.slice(0, 4).map((teacher) => {
             const isOwnCard = Boolean(
               user &&
               role === 'teacher' &&
