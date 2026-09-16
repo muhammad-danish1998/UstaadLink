@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/client';
 import { TeacherCardData } from '@/components/teacher/TeacherCard';
 import { Subject, ClassLevel, TeachingSkill } from '@/types/database';
 import { sanitizeInput, normalizePhoneNumber } from '@/lib/security';
-import { normalizeTown, normalizeUc, MALIR_DISTRICT, isValidMalirLocation } from '@/lib/malirLocations';
+import { normalizeTown, normalizeUc, MALIR_DISTRICT, isValidMalirLocation, parseMalirLocation } from '@/lib/malirLocations';
 
 import { getCardDraft, saveCardDraft, TeacherCardDraft } from '@/lib/cardBuilderStorage';
 
@@ -322,9 +322,10 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
 
         const subs = teacherSubjectsMap[t.id] || [];
         const cls = teacherClassesMap[t.id] || [];
-        const mode = t.teaching_mode || 'onsite';
-        const monthlyAmt = mode === 'online' ? null : Number(t.monthly_salary ?? t.expected_salary) || 35000;
-        const hourlyAmt = mode === 'onsite' ? null : Number(t.online_hourly_rate) || 800;
+        const mode = (t as any).teaching_mode || 'onsite';
+        const monthlyAmt = Number(t.expected_salary) || 35000;
+        const hourlyAmt = (t as any).online_hourly_rate || 800;
+        const loc = parseMalirLocation(t.town_area);
 
         teachersList.push({
           id: teacherId,
@@ -333,20 +334,20 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
           avatarUrl: t.avatar_url || '',
           highestEducation: t.highest_education || 'Certified Educator',
           subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
-          classes: cls.length > 0 ? normalizeClassLevel(cls.join(', ')) : normalizeClassLevel(t.classes || '9 - 10'),
+          classes: cls.length > 0 ? normalizeClassLevel(cls.join(', ')) : normalizeClassLevel(t.classes || '6 - 10'),
           experienceYears: Number(t.experience_years) || 2,
           availability: t.availability || 'Morning',
           teachingMode: mode,
           location: {
-            area: t.uc ? `${t.uc}, ${t.town_area || 'Malir'}` : (t.town_area || 'Malir'),
+            area: t.town_area || 'Malir',
             district: t.district || 'Malir',
             city: t.city || 'Karachi',
-            town: t.town_area || 'Malir',
-            uc: t.uc || '',
+            town: loc.town || 'Malir',
+            uc: loc.uc || '',
           },
-          expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
-          monthlySalary: monthlyAmt ?? undefined,
-          onlineHourlyRate: hourlyAmt ?? undefined,
+          expectedSalary: monthlyAmt,
+          monthlySalary: monthlyAmt,
+          onlineHourlyRate: hourlyAmt,
           isVerified: true,
         });
       });
@@ -586,36 +587,36 @@ export async function getTeacherBySlug(slug: string) {
       const mode = (data as any).teaching_mode || 'onsite';
       const monthlyAmt = mode === 'online' ? null : Number((data as any).monthly_salary ?? data.expected_salary) || 35000;
       const hourlyAmt = mode === 'onsite' ? null : Number((data as any).online_hourly_rate) || 800;
-
+      const loc = parseMalirLocation(data.town_area);
       return {
-        id: data.id,
-        slug: data.slug || cleanSlug,
-        fullName,
-        avatarUrl: data.avatar_url || '',
-        highestEducation: data.highest_education || 'Certified Educator',
-        institution: data.institution || 'University of Karachi',
-        additionalQualifications: data.additional_qualifications || '',
-        subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
-        classes: normalizeClassLevel(cls || '6 - 10'),
-        skills: sks.length > 0 ? sks : ['Classroom Management', 'Lesson Planning', 'Student Assessment', 'Board Exam Preparation'],
-        experienceYears: Number(data.experience_years) || 2,
-        previousSchool: data.previous_school || '',
-        availability: data.availability || 'Morning',
-        availableFrom: data.available_from || 'Immediately',
-        teachingMode: mode,
-        location: {
-          area: (data as any).uc ? `${(data as any).uc}, ${data.town_area || 'Malir'}` : (data.town_area || 'Malir'),
-          district: data.district || 'Malir',
-          city: data.city || 'Karachi',
-          town: data.town_area || 'Malir',
-          uc: (data as any).uc || '',
-        },
-        expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
-        monthlySalary: monthlyAmt,
-        onlineHourlyRate: hourlyAmt,
-        aboutMe: data.about_me || 'Dedicated educator passionate about student success.',
-        isVerified: true,
-      };
+          id: data.id,
+          slug: data.slug || cleanSlug,
+          fullName,
+          avatarUrl: data.avatar_url || '',
+          highestEducation: data.highest_education || 'Certified Educator',
+          institution: data.institution || 'University of Karachi',
+          additionalQualifications: data.additional_qualifications || '',
+          subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
+          classes: normalizeClassLevel(cls || '6 - 10'),
+          skills: sks.length > 0 ? sks : ['Classroom Management', 'Lesson Planning', 'Student Assessment', 'Board Exam Preparation'],
+          experienceYears: Number(data.experience_years) || 2,
+          previousSchool: data.previous_school || '',
+          availability: data.availability || 'Morning',
+          availableFrom: data.available_from || 'Immediately',
+          teachingMode: mode,
+          location: {
+            area: data.town_area || 'Malir',
+            district: data.district || 'Malir',
+            city: data.city || 'Karachi',
+            town: loc.town || 'Malir',
+            uc: loc.uc || '',
+          },
+          expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
+          monthlySalary: monthlyAmt,
+          onlineHourlyRate: hourlyAmt,
+          aboutMe: data.about_me || 'Dedicated educator passionate about student success.',
+          isVerified: true,
+        };
     }
 
     // 3. Query profiles table by role teacher
@@ -823,8 +824,8 @@ export async function fetchCurrentTeacherProfile(userIdOrSlug?: string): Promise
         teachingMode: mode,
         monthlySalary: monthlyAmt,
         onlineHourlyRate: hourlyAmt,
-        town: teacherRow.town_area || 'Malir Town',
-        uc: (teacherRow as any).uc || '',
+        town: parseMalirLocation(teacherRow.town_area).town || 'Malir',
+        uc: parseMalirLocation(teacherRow.town_area).uc || '',
         area: teacherRow.town_area || 'Malir Town',
         district: teacherRow.district || 'Malir',
         city: teacherRow.city || 'Karachi',

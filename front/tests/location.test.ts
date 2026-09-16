@@ -37,13 +37,21 @@ console.log(`Test 5: isValidMalirLocation("Gadap", "Gulshan-e-Hadeed") -> ${vali
 if (validCheck !== true) throw new Error('Test 5 failed!');
 
 // Test 6: Location Formatting
-const formatted = formatLocation('Gulshan-e-Hadeed', 'Gadap', 'Malir');
-console.log(`Test 6: formatLocation -> "${formatted}" (Expected: "Gulshan-e-Hadeed, Gadap, Malir")`);
-if (formatted !== 'Gulshan-e-Hadeed, Gadap, Malir') throw new Error('Test 6 failed!');
+const formatted1 = formatLocation('Gulshan-e-Hadeed', 'Gadap', 'Malir');
+console.log(`Test 6a: formatLocation -> "${formatted1}" (Expected: "Gulshan-e-Hadeed, Gadap, Malir")`);
+if (formatted1 !== 'Gulshan-e-Hadeed, Gadap, Malir') throw new Error('Test 6a failed!');
+
+const formatted2 = formatLocation('Qaidabad', 'Malir', 'Malir');
+console.log(`Test 6b: formatLocation -> "${formatted2}" (Expected: "Qaidabad, Malir")`);
+if (formatted2 !== 'Qaidabad, Malir') throw new Error('Test 6b failed!');
+
+const formatted3 = formatLocation('', 'Gulshan-e-Hadeed, Gadap', 'Malir');
+console.log(`Test 6c: formatLocation composite -> "${formatted3}" (Expected: "Gulshan-e-Hadeed, Gadap, Malir")`);
+if (formatted3 !== 'Gulshan-e-Hadeed, Gadap, Malir') throw new Error('Test 6c failed!');
 
 // Test 7: Empty town returns empty UCs
 const emptyUcs = getUcOptionsForTown('');
 console.log(`Test 7: getUcOptionsForTown("") count: ${emptyUcs.length} (Expected: 0)`);
 if (emptyUcs.length !== 0) throw new Error('Test 7 failed!');
 
-console.log('--- ALL 7 LOCATION TESTS PASSED SUCCESSFULLY ---');
+console.log('--- ALL LOCATION TESTS PASSED SUCCESSFULLY ---');

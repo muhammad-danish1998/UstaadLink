@@ -119,12 +119,88 @@ export function isValidMalirLocation(townName?: string, ucName?: string): boolea
 }
 
 /**
- * Formats a location consistently: "📍 [UC], [Town], Malir"
+ * Parses raw stored location string (e.g. "Qaidabad, Malir" or "Gulshan-e-Hadeed, Gadap")
+ * to extract the Union Council (UC) and Town reliably
  */
-export function formatLocation(uc?: string, town?: string, district: string = MALIR_DISTRICT): string {
+export function parseMalirLocation(rawLocation?: string): { uc: string; town: MalirTownName | ''; district: string } {
+  if (!rawLocation) return { uc: '', town: 'Malir', district: MALIR_DISTRICT };
+
+  const clean = rawLocation.trim();
+  const lower = clean.toLowerCase();
+
+  // Create list of all UCs sorted by length descending so longer/more specific names match first
+  const allUcs: { uc: string; town: MalirTownName }[] = [];
+  for (const town of MALIR_TOWNS) {
+    for (const uc of MALIR_LOCATIONS[town]) {
+      allUcs.push({ uc, town });
+    }
+  }
+  allUcs.sort((a, b) => b.uc.length - a.uc.length);
+
+  // 1. Check if any known Union Council is in the string (longest first)
+  for (const item of allUcs) {
+    if (lower.includes(item.uc.toLowerCase())) {
+      return {
+        uc: item.uc,
+        town: item.town,
+        district: MALIR_DISTRICT,
+      };
+    }
+  }
+
+  // 2. If no UC matched, check if Town matches
+  const normTown = normalizeTown(clean);
+  return {
+    uc: '',
+    town: normTown || 'Malir',
+    district: MALIR_DISTRICT,
+  };
+}
+
+/**
+ * Formats a location consistently for teacher cards and profile pages
+ * Examples:
+ * - "Qaidabad, Malir"
+ * - "Gulshan-e-Hadeed, Gadap, Malir"
+ * - "Shah Lateef, Ibrahim Hyderi, Malir"
+ */
+export function formatLocation(rawUc?: string, rawTown?: string, rawDistrict: string = MALIR_DISTRICT): string {
+  let parsedUc = rawUc ? rawUc.trim() : '';
+  let parsedTown = rawTown ? rawTown.trim() : '';
+
+  // If rawTown or rawUc contains a composite string (e.g. "Qaidabad, Malir"), parse it cleanly
+  if (!parsedUc && parsedTown) {
+    const parsed = parseMalirLocation(parsedTown);
+    parsedUc = parsed.uc;
+    parsedTown = parsed.town || parsedTown;
+  } else if (parsedUc) {
+    const parsed = parseMalirLocation(parsedUc);
+    if (parsed.uc) {
+      parsedUc = parsed.uc;
+      if (!parsedTown || parsedTown === MALIR_DISTRICT) parsedTown = parsed.town;
+    }
+  }
+
+  const normTown = normalizeTown(parsedTown) || parsedTown;
   const parts: string[] = [];
-  if (uc && uc.trim()) parts.push(uc.trim());
-  if (town && town.trim()) parts.push(normalizeTown(town) || town.trim());
-  parts.push(district || MALIR_DISTRICT);
-  return parts.join(', ');
+
+  if (parsedUc) {
+    parts.push(parsedUc);
+  }
+
+  if (normTown && !parts.some(p => p.toLowerCase() === normTown.toLowerCase())) {
+    parts.push(normTown);
+  }
+
+  // If the location only consists of "Malir", return "Malir Town, Karachi"
+  if (parts.length === 1 && parts[0].toLowerCase() === 'malir') {
+    return 'Malir, Karachi';
+  }
+
+  // Add District Malir if town is Gadap or Ibrahim Hyderi (or not already present)
+  if (normTown && normTown !== 'Malir' && !parts.includes(MALIR_DISTRICT)) {
+    parts.push(MALIR_DISTRICT);
+  }
+
+  return parts.length > 0 ? parts.join(', ') : 'Malir, Karachi';
 }
