@@ -207,9 +207,17 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
             </button>
           )}
 
-          <span className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 text-slate-700 border border-slate-200/90 shadow-2xs">
-            Class {teacher.classes}
-          </span>
+          {(() => {
+            const raw = teacher.classes ? String(teacher.classes).replace(/^Class(es)?\s*:?\s*/i, '').trim() : '9 - 10';
+            const label = raw.toLowerCase().includes('level') || raw.toLowerCase().includes('cambridge') || raw.startsWith('O / A')
+              ? raw
+              : `Class ${raw}`;
+            return (
+              <span className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 text-slate-700 border border-slate-200/90 shadow-2xs">
+                {label}
+              </span>
+            );
+          })()}
         </div>
 
         {/* Structured Details Matrix */}

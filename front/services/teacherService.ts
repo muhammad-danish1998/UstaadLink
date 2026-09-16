@@ -54,6 +54,22 @@ export function invalidateTeacherCache() {
   teacherCache = null;
 }
 
+export function normalizeClassLevel(val?: string): string {
+  if (!val) return '9 - 10';
+  const clean = String(val).trim();
+  const lower = clean.toLowerCase();
+  
+  if ((clean.includes('9') && clean.includes('10')) || lower.includes('matric') || lower.includes('secondary (class 9')) return '9 - 10';
+  if ((clean.includes('1') && clean.includes('5')) || lower.includes('primary')) return '1 - 5';
+  if ((clean.includes('6') && clean.includes('8')) || lower.includes('middle')) return '6 - 8';
+  if ((clean.includes('11') && clean.includes('12')) || lower.includes('inter') || lower.includes('hssc') || lower.includes('higher secondary')) return '11 - 12';
+  if ((clean.includes('1') && clean.includes('10') && !clean.includes('6') && !clean.includes('9')) || lower.includes('all level')) return '1 - 10';
+  if (lower.includes('o-level') || lower.includes('a-level') || lower.includes('cambridge') || lower.includes('o / a') || lower.includes('o/a')) return 'O / A Levels';
+  if (clean.includes('6 - 10') || clean.includes('6-10') || lower.includes('secondary')) return '6 - 10';
+  
+  return clean.replace(/^Class(es)?\s*:?\s*/i, '').trim();
+}
+
 export interface TeacherFilterParams {
   query?: string;
   subject?: string;
@@ -101,7 +117,7 @@ export function saveLocalRegisteredTeacher(teacherData: any) {
       institution: teacherData.institution || 'University',
       additionalQualifications: teacherData.additionalQualifications || teacherData.additional_qualifications || '',
       subjects: teacherData.subjects && teacherData.subjects.length > 0 ? teacherData.subjects : ['General Science', 'Mathematics'],
-      classes: teacherData.classes || 'Class 9 - 10 (Matric)',
+      classes: normalizeClassLevel(teacherData.classes),
       experienceYears: Number(teacherData.experienceYears ?? teacherData.experience_years) || 2,
       availability: teacherData.availability || 'Morning',
       teachingMode: mode,
@@ -245,7 +261,7 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
           avatarUrl: t.avatar_url || '',
           highestEducation: t.highest_education || 'Certified Educator',
           subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
-          classes: cls.length > 0 ? cls.join(', ') : '9 - 10',
+          classes: cls.length > 0 ? normalizeClassLevel(cls.join(', ')) : normalizeClassLevel(t.classes || '9 - 10'),
           experienceYears: Number(t.experience_years) || 2,
           availability: t.availability || 'Morning',
           teachingMode: mode,
@@ -936,16 +952,25 @@ export async function publishTeacherCard(draftData: any) {
 
       // Link classes
       if (draftData.classes) {
-        const classNames = draftData.classes.split(',').map((c: string) => c.trim());
+        const rawClassStr = String(draftData.classes).trim();
+        const normClass = normalizeClassLevel(rawClassStr);
         const { data: dbClasses } = await supabase.from('classes').select('id, name');
         if (dbClasses && dbClasses.length > 0) {
-          const matched = dbClasses.filter(c =>
-            classNames.some((cn: string) => c.name.toLowerCase().includes(cn.toLowerCase()) || cn.toLowerCase().includes(c.name.toLowerCase()))
-          );
+          const matched = dbClasses.filter(c => {
+            const dbNorm = normalizeClassLevel(c.name);
+            return dbNorm === normClass || 
+                   c.name.toLowerCase().includes(rawClassStr.toLowerCase()) || 
+                   rawClassStr.toLowerCase().includes(c.name.toLowerCase());
+          });
+
           if (matched.length > 0) {
             await supabase.from('teacher_classes').delete().eq('teacher_id', teacherRowId);
             const clsInserts = matched.map((c) => ({ teacher_id: teacherRowId, class_id: c.id }));
             await supabase.from('teacher_classes').insert(clsInserts);
+          } else if (dbClasses.length > 0) {
+            // Best effort link first class if exact match not found
+            await supabase.from('teacher_classes').delete().eq('teacher_id', teacherRowId);
+            await supabase.from('teacher_classes').insert([{ teacher_id: teacherRowId, class_id: dbClasses[0].id }]);
           }
         }
       }
@@ -960,7 +985,7 @@ export async function publishTeacherCard(draftData: any) {
       institution: draftData.institution || 'University',
       additionalQualifications: draftData.additionalQualifications || '',
       subjects: draftData.subjects && draftData.subjects.length > 0 ? draftData.subjects : ['General Science', 'Mathematics'],
-      classes: draftData.classes || 'Class 9 - 10 (Matric)',
+      classes: normalizeClassLevel(draftData.classes),
       experienceYears: Math.max(0, parseInt(draftData.experienceYears) || 0),
       availability: safeAvailability,
       availableFrom: draftData.availableFrom || '',
