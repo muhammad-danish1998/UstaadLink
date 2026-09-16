@@ -159,10 +159,11 @@ export function parseMalirLocation(rawLocation?: string): { uc: string; town: Ma
 
 /**
  * Formats a location consistently for teacher cards and profile pages
+ * Hierarchy: UC → Town/TMC → District
  * Examples:
- * - "Qaidabad, Malir"
- * - "Gulshan-e-Hadeed, Gadap, Malir"
- * - "Shah Lateef, Ibrahim Hyderi, Malir"
+ * - "Qaidabad, Malir, District Malir"
+ * - "Gulshan-e-Hadeed, Gadap, District Malir"
+ * - "Shah Lateef, Ibrahim Hyderi, District Malir"
  */
 export function formatLocation(rawUc?: string, rawTown?: string, rawDistrict: string = MALIR_DISTRICT): string {
   let parsedUc = rawUc ? rawUc.trim() : '';
@@ -184,23 +185,25 @@ export function formatLocation(rawUc?: string, rawTown?: string, rawDistrict: st
   const normTown = normalizeTown(parsedTown) || parsedTown;
   const parts: string[] = [];
 
+  // 1. UC (Union Council)
   if (parsedUc) {
     parts.push(parsedUc);
   }
 
-  if (normTown && !parts.some(p => p.toLowerCase() === normTown.toLowerCase())) {
+  // 2. Town / TMC
+  if (normTown) {
     parts.push(normTown);
   }
 
-  // If the location only consists of "Malir", return "Malir Town, Karachi"
-  if (parts.length === 1 && parts[0].toLowerCase() === 'malir') {
-    return 'Malir, Karachi';
+  // 3. District (Always explicitly appended as District Malir for clear hierarchy UC → Town → District)
+  const districtName = rawDistrict?.trim() || MALIR_DISTRICT;
+  const formattedDistrict = districtName.toLowerCase().startsWith('district')
+    ? districtName
+    : `District ${districtName}`;
+
+  if (!parts.includes(formattedDistrict)) {
+    parts.push(formattedDistrict);
   }
 
-  // Add District Malir if town is Gadap or Ibrahim Hyderi (or not already present)
-  if (normTown && normTown !== 'Malir' && !parts.includes(MALIR_DISTRICT)) {
-    parts.push(MALIR_DISTRICT);
-  }
-
-  return parts.length > 0 ? parts.join(', ') : 'Malir, Karachi';
+  return parts.length > 0 ? parts.join(', ') : `Malir, District ${MALIR_DISTRICT}`;
 }

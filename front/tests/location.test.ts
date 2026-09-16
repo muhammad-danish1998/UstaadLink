@@ -36,18 +36,18 @@ const validCheck = isValidMalirLocation('Gadap', 'Gulshan-e-Hadeed');
 console.log(`Test 5: isValidMalirLocation("Gadap", "Gulshan-e-Hadeed") -> ${validCheck} (Expected: true)`);
 if (validCheck !== true) throw new Error('Test 5 failed!');
 
-// Test 6: Location Formatting
+// Test 6: Location Formatting with clear hierarchy: UC → Town/TMC → District
 const formatted1 = formatLocation('Gulshan-e-Hadeed', 'Gadap', 'Malir');
-console.log(`Test 6a: formatLocation -> "${formatted1}" (Expected: "Gulshan-e-Hadeed, Gadap, Malir")`);
-if (formatted1 !== 'Gulshan-e-Hadeed, Gadap, Malir') throw new Error('Test 6a failed!');
+console.log(`Test 6a: formatLocation -> "${formatted1}" (Expected: "Gulshan-e-Hadeed, Gadap, District Malir")`);
+if (formatted1 !== 'Gulshan-e-Hadeed, Gadap, District Malir') throw new Error('Test 6a failed!');
 
 const formatted2 = formatLocation('Qaidabad', 'Malir', 'Malir');
-console.log(`Test 6b: formatLocation -> "${formatted2}" (Expected: "Qaidabad, Malir")`);
-if (formatted2 !== 'Qaidabad, Malir') throw new Error('Test 6b failed!');
+console.log(`Test 6b: formatLocation -> "${formatted2}" (Expected: "Qaidabad, Malir, District Malir")`);
+if (formatted2 !== 'Qaidabad, Malir, District Malir') throw new Error('Test 6b failed!');
 
 const formatted3 = formatLocation('', 'Gulshan-e-Hadeed, Gadap', 'Malir');
-console.log(`Test 6c: formatLocation composite -> "${formatted3}" (Expected: "Gulshan-e-Hadeed, Gadap, Malir")`);
-if (formatted3 !== 'Gulshan-e-Hadeed, Gadap, Malir') throw new Error('Test 6c failed!');
+console.log(`Test 6c: formatLocation composite -> "${formatted3}" (Expected: "Gulshan-e-Hadeed, Gadap, District Malir")`);
+if (formatted3 !== 'Gulshan-e-Hadeed, Gadap, District Malir') throw new Error('Test 6c failed!');
 
 // Test 7: Empty town returns empty UCs
 const emptyUcs = getUcOptionsForTown('');
