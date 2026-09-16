@@ -34,6 +34,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 import { getTeacherBySlug } from '@/services/teacherService';
 import { recordProfileView, toggleShortlist, isTeacherShortlisted } from '@/lib/analyticsTracker';
+import { formatLocation } from '@/lib/malirLocations';
 
 export default function TeacherProfilePage() {
   const params = useParams();
@@ -299,9 +300,9 @@ export default function TeacherProfilePage() {
                   <Briefcase className="w-3.5 h-3.5 text-slate-400" />
                   {teacher.experienceYears} Years Experience
                 </span>
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  {teacher.area}, {teacher.city}
+                <span className="flex items-center gap-1 font-medium">
+                  <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span>{formatLocation(teacher.uc, teacher.town || teacher.area, teacher.district || 'Malir')}</span>
                 </span>
               </div>
             </div>
@@ -416,8 +417,8 @@ export default function TeacherProfilePage() {
                   <MapPin className="w-4 h-4 text-blue-600" />
                   Preferred Location
                 </span>
-                <p className="text-slate-600">Area: <strong>{teacher.area}, {teacher.city}</strong></p>
-                <p className="text-slate-500 text-[11px]">District: {teacher.district}</p>
+                <p className="text-slate-600">Location: <strong>{formatLocation(teacher.uc, teacher.town || teacher.area, teacher.district || 'Malir')}</strong></p>
+                <p className="text-slate-500 text-[11px]">District: {teacher.district || 'Malir'}</p>
               </div>
             </div>
 

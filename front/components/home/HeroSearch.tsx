@@ -9,9 +9,9 @@ const POPULAR_TAGS = [
   { label: 'Mathematics', param: 'subject', value: 'Mathematics' },
   { label: 'English', param: 'subject', value: 'English Language' },
   { label: 'Physics', param: 'subject', value: 'Physics' },
-  { label: 'Malir Town', param: 'town', value: 'Malir Town' },
-  { label: 'Gadap Town', param: 'town', value: 'Gadap Town' },
-  { label: 'Ibrahim Hyderi', param: 'town', value: 'Ibrahim Hyderi Town' },
+  { label: 'Malir', param: 'town', value: 'Malir' },
+  { label: 'Gadap', param: 'town', value: 'Gadap' },
+  { label: 'Ibrahim Hyderi', param: 'town', value: 'Ibrahim Hyderi' },
 ];
 
 export const HeroSearch: React.FC = () => {

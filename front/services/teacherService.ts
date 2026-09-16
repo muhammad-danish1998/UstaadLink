@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/client';
 import { TeacherCardData } from '@/components/teacher/TeacherCard';
 import { Subject, ClassLevel, TeachingSkill } from '@/types/database';
 import { sanitizeInput, normalizePhoneNumber } from '@/lib/security';
+import { normalizeTown, normalizeUc, MALIR_DISTRICT, isValidMalirLocation } from '@/lib/malirLocations';
 
 import { getCardDraft, saveCardDraft, TeacherCardDraft } from '@/lib/cardBuilderStorage';
 
@@ -733,8 +734,8 @@ export async function publishTeacherCard(draftData: any) {
       availability: safeAvailability,
       available_from: draftData.availableFrom ? new Date(draftData.availableFrom).toISOString().split('T')[0] : null,
       city: 'Karachi',
-      district: 'Malir',
-      town_area: sanitizeInput(draftData.town || draftData.area || 'Malir Town'),
+      district: MALIR_DISTRICT,
+      town_area: normalizeTown(draftData.town || draftData.area) || 'Malir',
       uc: draftData.uc ? sanitizeInput(draftData.uc) : null,
       expected_salary: Math.max(10000, Number(draftData.expectedSalary) || 35000),
       about_me: draftData.aboutMe || '',
@@ -1389,8 +1390,8 @@ export async function registerSchoolProfile(schoolData: {
       school_type: safeType,
       custom_school_type: safeType === 'Other' && schoolData.customSchoolType ? sanitizeInput(schoolData.customSchoolType) : null,
       city: 'Karachi',
-      district: 'Malir',
-      area: sanitizeInput(schoolData.town || schoolData.area || 'Malir Town'),
+      district: MALIR_DISTRICT,
+      area: normalizeTown(schoolData.town || schoolData.area) || 'Malir',
       uc: schoolData.uc ? sanitizeInput(schoolData.uc) : null,
       moderation_status: 'active',
       updated_at: new Date().toISOString(),

@@ -1,22 +1,17 @@
 /**
- * District Malir, Karachi — Location Hierarchy System
- * District: Malir
- * Towns: Malir Town, Gadap Town, Ibrahim Hyderi Town
- * UCs: Specific Union Councils mapped to each town
+ * UstaadLink — District Malir Location Hierarchy System
+ * District: Malir (Fixed)
+ * Towns / TMCs: Malir, Gadap, Ibrahim Hyderi
+ * Dependent Union Councils (UCs) per Town
  */
 
 export const MALIR_DISTRICT = 'Malir';
 
-export interface MalirTownData {
-  town: string;
-  ucs: string[];
-}
-
-export const MALIR_LOCATIONS: Record<string, string[]> = {
-  'Malir Town': [
+export const MALIR_LOCATIONS: Record<'Malir' | 'Gadap' | 'Ibrahim Hyderi', string[]> = {
+  'Malir': [
     'Gharibabad',
     'Dawood Goth',
-    'Jafar-e-Tayyar',
+    'Jaffar-e-Tayyar',
     'Khuldabad',
     'Qaidabad',
     'Dawood Chowrangi',
@@ -25,58 +20,111 @@ export const MALIR_LOCATIONS: Record<string, string[]> = {
     'Bakhtawar Goth',
     'Bhittaiabad',
   ],
-  'Gadap Town': [
+  'Gadap': [
     'Gadap',
-    'Gaghar',
+    'Ghaghar',
     'Pipri',
     'Gulshan-e-Hadeed',
     'Steel Town',
     'Saleh Muhammad',
-    'Murad Memon Goth',
-    'Darsano Chana',
+    'Murad Memon',
+    'Darsano Channo',
     'Shah Mureed',
   ],
-  'Ibrahim Hyderi Town': [
-    'Chaukhandi',
-    'Shah Latif Town',
+  'Ibrahim Hyderi': [
+    'Chowkandi',
+    'Shah Lateef',
     'Cattle Colony',
     'Majeed Colony',
-    'Muzaffarabad',
+    'Muzzaffarabad',
     'Muslimabad',
     'Sher Pao Colony',
     'Ibrahim Hyderi',
     'Chashma',
-    'Rehri Goth',
+    'Rehri',
     'Ali Akber Shah',
   ],
 };
 
-export const CUSTOM_LOCATION_VALUE = '__custom__';
+export type MalirTownName = keyof typeof MALIR_LOCATIONS;
 
-export const MALIR_TOWNS = Object.keys(MALIR_LOCATIONS);
+export const MALIR_TOWNS: MalirTownName[] = ['Malir', 'Gadap', 'Ibrahim Hyderi'];
 
+/**
+ * Normalizes legacy town strings (e.g. 'Malir Town' -> 'Malir')
+ */
+export function normalizeTown(rawTown?: string): MalirTownName | '' {
+  if (!rawTown) return '';
+  const clean = rawTown.trim().toLowerCase();
+  if (clean.includes('ibrahim') || clean.includes('hyderi')) return 'Ibrahim Hyderi';
+  if (clean.includes('gadap')) return 'Gadap';
+  if (clean.includes('malir')) return 'Malir';
+  return '';
+}
+
+/**
+ * Normalizes legacy UC strings for spelling variations
+ */
+export function normalizeUc(town: MalirTownName, rawUc?: string): string {
+  if (!rawUc || !town) return rawUc || '';
+  const ucs = MALIR_LOCATIONS[town] || [];
+  const exactMatch = ucs.find(u => u.toLowerCase() === rawUc.trim().toLowerCase());
+  if (exactMatch) return exactMatch;
+
+  // Handle minor spelling variations from legacy data
+  const clean = rawUc.trim().toLowerCase();
+  const partial = ucs.find(u => 
+    u.toLowerCase().replace(/[^a-z0-9]/g, '') === clean.replace(/[^a-z0-9]/g, '') ||
+    clean.includes(u.toLowerCase()) ||
+    u.toLowerCase().includes(clean)
+  );
+  return partial || rawUc;
+}
+
+/**
+ * Returns options for the Town / TMC dropdown
+ */
 export function getTownOptions() {
-  return [
-    ...MALIR_TOWNS.map((town) => ({
-      value: town,
-      label: town,
-    })),
-    { value: CUSTOM_LOCATION_VALUE, label: '✏️ Other / Custom Town (Write your own)' },
-  ];
+  return MALIR_TOWNS.map((town) => ({
+    value: town,
+    label: town,
+  }));
 }
 
-export function getUcOptionsForTown(townName: string) {
-  const ucs = MALIR_LOCATIONS[townName] || [];
-  return [
-    ...ucs.map((uc) => ({
-      value: uc,
-      label: uc,
-    })),
-    { value: CUSTOM_LOCATION_VALUE, label: '✏️ Other / Custom UC / Area (Write your own)' },
-  ];
+/**
+ * Returns dependent Union Councils options for a selected Town
+ */
+export function getUcOptionsForTown(townName?: string) {
+  const normTown = normalizeTown(townName);
+  if (!normTown || !MALIR_LOCATIONS[normTown]) {
+    return [];
+  }
+  return MALIR_LOCATIONS[normTown].map((uc) => ({
+    value: uc,
+    label: uc,
+  }));
 }
 
-export function isValidMalirLocation(townName: string, ucName: string): boolean {
-  if (!townName || !townName.trim() || !ucName || !ucName.trim()) return false;
-  return townName.trim().length >= 2 && ucName.trim().length >= 2;
+/**
+ * Validates that town is one of the 3 Malir TMCs and UC strictly belongs to that Town
+ */
+export function isValidMalirLocation(townName?: string, ucName?: string): boolean {
+  if (!townName || !ucName) return false;
+  const normTown = normalizeTown(townName);
+  if (!normTown || !MALIR_LOCATIONS[normTown]) return false;
+
+  const cleanUc = ucName.trim().toLowerCase();
+  const allowedUcs = MALIR_LOCATIONS[normTown].map(u => u.toLowerCase());
+  return allowedUcs.includes(cleanUc);
+}
+
+/**
+ * Formats a location consistently: "📍 [UC], [Town], Malir"
+ */
+export function formatLocation(uc?: string, town?: string, district: string = MALIR_DISTRICT): string {
+  const parts: string[] = [];
+  if (uc && uc.trim()) parts.push(uc.trim());
+  if (town && town.trim()) parts.push(normalizeTown(town) || town.trim());
+  parts.push(district || MALIR_DISTRICT);
+  return parts.join(', ');
 }

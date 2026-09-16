@@ -14,6 +14,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { formatLocation } from '@/lib/malirLocations';
 
 export interface TeacherCardData {
   id: string;
@@ -56,10 +57,11 @@ export const TeacherCard: React.FC<TeacherCardProps> = ({
     maximumFractionDigits: 0,
   }).format(teacher.expectedSalary);
 
-  const displayLocation = [
-    teacher.location.area || teacher.location.town,
-    teacher.location.city || 'Karachi'
-  ].filter(Boolean).join(', ');
+  const displayLocation = formatLocation(
+    teacher.location.uc,
+    teacher.location.town || teacher.location.area,
+    teacher.location.district || 'Malir'
+  );
 
   return (
     <article className="bg-white rounded-3xl border-2 border-slate-200/90 shadow-md hover:shadow-2xl hover:border-blue-400/80 hover:-translate-y-1.5 transition-all duration-300 p-6 sm:p-8 flex flex-col justify-between group relative overflow-hidden h-full">

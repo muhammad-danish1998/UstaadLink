@@ -30,10 +30,11 @@ import {
   MALIR_DISTRICT, 
   MALIR_LOCATIONS,
   MALIR_TOWNS,
-  CUSTOM_LOCATION_VALUE,
+  MalirTownName,
   getTownOptions, 
   getUcOptionsForTown, 
-  isValidMalirLocation 
+  isValidMalirLocation,
+  normalizeTown
 } from '@/lib/malirLocations';
 
 const schoolTypeOptions = [
@@ -55,12 +56,8 @@ function SchoolRegisterContent() {
     phone: '',
     city: 'Karachi',
     district: MALIR_DISTRICT,
-    town: 'Malir Town',
-    customTown: '',
-    uc: 'Qaidabad',
-    customUc: '',
-    isCustomTown: false,
-    isCustomUc: false,
+    town: '' as MalirTownName | '',
+    uc: '',
     schoolType: 'Private',
     customSchoolType: '',
     password: '',
@@ -77,59 +74,31 @@ function SchoolRegisterContent() {
     ...getTownOptions()
   ];
 
-  const currentTownName = formData.isCustomTown 
-    ? formData.customTown 
-    : (formData.town === CUSTOM_LOCATION_VALUE ? '' : formData.town);
-
-  const ucOptions = currentTownName && MALIR_LOCATIONS[currentTownName]
+  const ucOptions = formData.town && MALIR_LOCATIONS[formData.town]
     ? [
-        { value: '', label: 'Select Union Council (UC)' },
-        ...getUcOptionsForTown(currentTownName)
+        { value: '', label: 'Select UC' },
+        ...getUcOptionsForTown(formData.town)
       ]
     : [
-        { value: '', label: 'Select Union Council (UC)' },
-        { value: CUSTOM_LOCATION_VALUE, label: '✏️ Other / Custom UC (Write your own)' }
+        { value: '', label: 'Select Town First' }
       ];
 
   const handleTownChange = (selectedTown: string) => {
-    if (selectedTown === CUSTOM_LOCATION_VALUE) {
-      setFormData((prev) => ({
-        ...prev,
-        town: CUSTOM_LOCATION_VALUE,
-        isCustomTown: true,
-        uc: CUSTOM_LOCATION_VALUE,
-        isCustomUc: true,
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        town: selectedTown,
-        isCustomTown: false,
-        customTown: '',
-        uc: '',
-        customUc: '',
-        isCustomUc: false,
-      }));
-    }
+    const normTown = normalizeTown(selectedTown);
+    setFormData((prev) => ({
+      ...prev,
+      town: normTown,
+      uc: '', // Immediately reset UC on town change
+    }));
     if (errors.town) setErrors((prev) => ({ ...prev, town: '' }));
     if (errors.uc) setErrors((prev) => ({ ...prev, uc: '' }));
   };
 
   const handleUcChange = (selectedUc: string) => {
-    if (selectedUc === CUSTOM_LOCATION_VALUE) {
-      setFormData((prev) => ({
-        ...prev,
-        uc: CUSTOM_LOCATION_VALUE,
-        isCustomUc: true,
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        uc: selectedUc,
-        isCustomUc: false,
-        customUc: '',
-      }));
-    }
+    setFormData((prev) => ({
+      ...prev,
+      uc: selectedUc,
+    }));
     if (errors.uc) setErrors((prev) => ({ ...prev, uc: '' }));
   };
 
@@ -160,17 +129,14 @@ function SchoolRegisterContent() {
       errs.phone = 'Please enter a valid contact number (e.g. 03001234567 or 02134567890)';
     }
 
-    const effectiveTown = formData.isCustomTown ? formData.customTown.trim() : formData.town;
-    const effectiveUc = formData.isCustomUc ? formData.customUc.trim() : formData.uc;
-
-    if (!effectiveTown || effectiveTown === CUSTOM_LOCATION_VALUE) {
-      errs.town = 'Please specify or select your Town in District Malir';
+    if (!formData.town) {
+      errs.town = 'Please select your Town / TMC in District Malir';
     }
 
-    if (!effectiveUc || effectiveUc === CUSTOM_LOCATION_VALUE) {
-      errs.uc = 'Please specify or select your Union Council / Area';
-    } else if (!isValidMalirLocation(effectiveTown, effectiveUc)) {
-      errs.uc = 'Please enter a valid Union Council / Area name (min. 2 characters)';
+    if (!formData.uc) {
+      errs.uc = 'Please select your Union Council (UC)';
+    } else if (!isValidMalirLocation(formData.town, formData.uc)) {
+      errs.uc = 'Selected Union Council does not belong to the chosen Town';
     }
 
     if (!formData.schoolType) {
@@ -250,9 +216,6 @@ function SchoolRegisterContent() {
         });
       }
 
-      const effectiveTown = formData.isCustomTown ? formData.customTown.trim() : formData.town;
-      const effectiveUc = formData.isCustomUc ? formData.customUc.trim() : formData.uc;
-
       const schoolPayload = {
         schoolName: cleanSchoolName,
         contactPerson: cleanContactPerson,
@@ -260,9 +223,9 @@ function SchoolRegisterContent() {
         phone: cleanPhone,
         city: 'Karachi',
         district: MALIR_DISTRICT,
-        town: effectiveTown,
-        uc: effectiveUc,
-        area: `${effectiveUc}, ${effectiveTown}`,
+        town: formData.town,
+        uc: formData.uc,
+        area: `${formData.uc}, ${formData.town}`,
         schoolType: formData.schoolType,
         customSchoolType: sanitizeInput(formData.customSchoolType.trim()),
       };
@@ -278,9 +241,9 @@ function SchoolRegisterContent() {
             phone: formData.phone,
             role: 'school',
             district: MALIR_DISTRICT,
-            town: effectiveTown,
-            uc: effectiveUc,
-            area: `${effectiveUc}, ${effectiveTown}`,
+            town: formData.town,
+            uc: formData.uc,
+            area: `${formData.uc}, ${formData.town}`,
           })
         );
         window.dispatchEvent(new Event('teachconnect_auth_change'));
@@ -429,107 +392,86 @@ function SchoolRegisterContent() {
                       <label className="block text-xs font-semibold text-slate-700 tracking-wide mb-1.5">
                         District
                       </label>
-                      <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2.5 text-xs font-bold text-slate-800 flex items-center justify-between">
+                      <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2.5 text-xs font-bold text-slate-800 flex items-center justify-between shadow-2xs">
                         <span>{MALIR_DISTRICT}</span>
                         <Lock className="w-3.5 h-3.5 text-slate-400" />
                       </div>
+                      <span className="text-[10px] text-slate-400 mt-1 block">Fixed launch district</span>
                     </div>
 
-                    {/* 2. Town Dropdown/Input */}
+                    {/* 2. Town / TMC Dropdown */}
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-semibold text-slate-700 tracking-wide">
-                          Town <span className="text-red-500">*</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextIsCustom = !formData.isCustomTown;
-                            setFormData((prev) => ({
-                              ...prev,
-                              isCustomTown: nextIsCustom,
-                              town: nextIsCustom ? CUSTOM_LOCATION_VALUE : (MALIR_TOWNS[0] || ''),
-                              customTown: nextIsCustom ? prev.customTown : '',
-                              isCustomUc: nextIsCustom ? true : prev.isCustomUc,
-                              uc: nextIsCustom ? CUSTOM_LOCATION_VALUE : prev.uc,
-                            }));
-                          }}
-                          className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold cursor-pointer"
-                        >
-                          {formData.isCustomTown ? 'Select list' : 'Type custom'}
-                        </button>
-                      </div>
-
-                      {formData.isCustomTown ? (
-                        <Input
-                          placeholder="e.g. Model Colony"
-                          value={formData.customTown}
-                          onChange={(e) => {
-                            setFormData((prev) => ({ ...prev, customTown: e.target.value }));
-                            if (errors.town) setErrors((prev) => ({ ...prev, town: '' }));
-                          }}
-                          error={errors.town}
-                          required
-                        />
-                      ) : (
-                        <Select
-                          name="town"
-                          options={townOptions}
-                          value={formData.town}
-                          onChange={(e) => handleTownChange(e.target.value)}
-                          error={errors.town}
-                          required
-                        />
-                      )}
+                      <label className="block text-xs font-semibold text-slate-700 tracking-wide mb-1.5">
+                        Town / TMC <span className="text-red-500">*</span>
+                      </label>
+                      <Select
+                        name="town"
+                        options={townOptions}
+                        value={formData.town}
+                        onChange={(e) => handleTownChange(e.target.value)}
+                        error={errors.town}
+                        required
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Choose TMC</span>
                     </div>
 
-                    {/* 3. UC Dependent Dropdown/Input */}
+                    {/* 3. UC Dependent Dropdown */}
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-semibold text-slate-700 tracking-wide">
-                          UC / Area <span className="text-red-500">*</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextIsCustom = !formData.isCustomUc;
-                            setFormData((prev) => ({
-                              ...prev,
-                              isCustomUc: nextIsCustom,
-                              uc: nextIsCustom ? CUSTOM_LOCATION_VALUE : (MALIR_LOCATIONS[formData.town]?.[0] || ''),
-                              customUc: nextIsCustom ? prev.customUc : '',
-                            }));
-                          }}
-                          className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold cursor-pointer"
-                        >
-                          {formData.isCustomUc ? 'Select list' : 'Type custom'}
-                        </button>
-                      </div>
-
-                      {formData.isCustomUc ? (
-                        <Input
-                          placeholder="e.g. Saadi Town"
-                          value={formData.customUc}
-                          onChange={(e) => {
-                            setFormData((prev) => ({ ...prev, customUc: e.target.value }));
-                            if (errors.uc) setErrors((prev) => ({ ...prev, uc: '' }));
-                          }}
-                          error={errors.uc}
-                          required
-                        />
-                      ) : (
-                        <Select
-                          name="uc"
-                          options={ucOptions}
-                          value={formData.uc}
-                          onChange={(e) => handleUcChange(e.target.value)}
-                          error={errors.uc}
-                          disabled={!currentTownName}
-                          required
-                        />
-                      )}
+                      <label className="block text-xs font-semibold text-slate-700 tracking-wide mb-1.5">
+                        Union Council (UC) <span className="text-red-500">*</span>
+                      </label>
+                      <Select
+                        name="uc"
+                        options={ucOptions}
+                        value={formData.uc}
+                        onChange={(e) => handleUcChange(e.target.value)}
+                        error={errors.uc}
+                        disabled={!formData.town}
+                        required
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">
+                        {formData.town ? `Filtered for ${formData.town}` : 'Select Town first'}
+                      </span>
                     </div>
                   </div>
+
+                  {/* Quick Select UC Pills for selected town */}
+                  {formData.town && MALIR_LOCATIONS[formData.town] && (
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 space-y-2 mt-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-700 font-semibold flex items-center gap-1.5">
+                          <Building className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Union Councils in {formData.town}:</span>
+                        </span>
+                        {formData.uc && (
+                          <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Selected: {formData.uc}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {MALIR_LOCATIONS[formData.town].map((ucName) => {
+                          const isUcSelected = formData.uc === ucName;
+                          return (
+                            <button
+                              key={ucName}
+                              type="button"
+                              onClick={() => handleUcChange(ucName)}
+                              className={`
+                                text-[11px] px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer border
+                                ${isUcSelected 
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' 
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50'
+                                }
+                              `.trim()}
+                            >
+                              {ucName}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

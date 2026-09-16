@@ -29,7 +29,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { 
   MALIR_DISTRICT, 
   getTownOptions, 
-  getUcOptionsForTown 
+  getUcOptionsForTown,
+  normalizeTown
 } from '@/lib/malirLocations';
 
 const subjectOptions = [
@@ -169,8 +170,10 @@ function FindTeachersContent() {
 
         // Town Filter
         if (selectedTown) {
+          const normSelected = normalizeTown(selectedTown);
           const townMatch = 
-            (t.location.town && t.location.town.toLowerCase() === selectedTown.toLowerCase()) ||
+            normalizeTown(t.location.town) === normSelected ||
+            normalizeTown(t.location.area) === normSelected ||
             t.location.area.toLowerCase().includes(selectedTown.toLowerCase());
           if (!townMatch) return false;
         }
