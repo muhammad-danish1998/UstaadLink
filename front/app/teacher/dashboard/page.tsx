@@ -252,31 +252,49 @@ export default function TeacherDashboardPage() {
               </span>
             </div>
 
-            <div className="bg-emerald-50/60 p-5 rounded-2xl border border-emerald-100 space-y-1">
+            {/* Clickable Expected Salary Metric Card */}
+            <Link
+              href="/create-card/step-5"
+              className="bg-emerald-50/60 hover:bg-emerald-100/70 p-5 rounded-2xl border border-emerald-200/90 hover:border-emerald-400 space-y-1 transition-all group cursor-pointer block shadow-2xs hover:shadow-md"
+              title="Click to change Expected Monthly Salary & Online Rates"
+            >
               <div className="flex items-center justify-between text-emerald-700 mb-1">
-                <span className="text-xs font-bold uppercase tracking-wider">Expected Salary</span>
-                <Banknote className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <span>Expected Salary</span>
+                  <Edit3 className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                </span>
+                <Banknote className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
               </div>
-              <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 block truncate">
+              <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 block truncate group-hover:text-emerald-800 transition-colors">
                 {formattedSalary}
               </span>
-              <span className="text-xs text-emerald-700 font-medium block">
-                PKR / month &bull; Shift: {draft.availability || 'Morning'}
+              <span className="text-xs text-emerald-700 font-medium flex items-center justify-between">
+                <span>PKR / month &bull; Shift: {draft.availability || 'Morning'}</span>
+                <span className="text-[11px] font-bold underline opacity-80 group-hover:opacity-100">Change &rarr;</span>
               </span>
-            </div>
+            </Link>
 
-            <div className="bg-purple-50/60 p-5 rounded-2xl border border-purple-100 space-y-1">
+            {/* Clickable Preferred Location Metric Card */}
+            <Link
+              href="/create-card/step-4"
+              className="bg-purple-50/60 hover:bg-purple-100/70 p-5 rounded-2xl border border-purple-200/90 hover:border-purple-400 space-y-1 transition-all group cursor-pointer block shadow-2xs hover:shadow-md"
+              title="Click to edit preferred location, Town, UC, or Teaching Mode"
+            >
               <div className="flex items-center justify-between text-purple-700 mb-1">
-                <span className="text-xs font-bold uppercase tracking-wider">Preferred Location</span>
-                <MapPin className="w-4 h-4 text-purple-600" />
+                <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <span>Preferred Location</span>
+                  <Edit3 className="w-3.5 h-3.5 text-purple-600 group-hover:scale-110 transition-transform" />
+                </span>
+                <MapPin className="w-4 h-4 text-purple-600 group-hover:scale-110 transition-transform" />
               </div>
-              <span className="text-xl sm:text-2xl font-extrabold text-slate-900 block truncate">
+              <span className="text-xl sm:text-2xl font-extrabold text-slate-900 block truncate group-hover:text-purple-800 transition-colors">
                 {draft.area || 'Malir'}, {draft.city || 'Karachi'}
               </span>
-              <span className="text-xs text-purple-700 font-medium block">
-                {draft.district || 'Malir District'}
+              <span className="text-xs text-purple-700 font-medium flex items-center justify-between">
+                <span>{draft.district || 'District Malir'}</span>
+                <span className="text-[11px] font-bold underline opacity-80 group-hover:opacity-100">Change &rarr;</span>
               </span>
-            </div>
+            </Link>
           </div>
         </div>
 
@@ -297,8 +315,12 @@ export default function TeacherDashboardPage() {
 
             {/* Compact Profile Visual */}
             <div className="p-4 rounded-2xl bg-gradient-to-b from-blue-50/50 to-slate-50 border border-slate-200/90 space-y-4">
-              <div className="flex items-center gap-3.5">
-                <div className="relative w-14 h-14 rounded-full overflow-hidden bg-blue-50 border-2 border-blue-200 shrink-0">
+              <Link
+                href="/create-card/step-1"
+                className="flex items-center gap-3.5 group cursor-pointer"
+                title="Click to edit profile photo, name & degrees"
+              >
+                <div className="relative w-14 h-14 rounded-full overflow-hidden bg-blue-50 border-2 border-blue-200 shrink-0 group-hover:border-blue-500 transition-colors">
                   {draft.profilePhotoUrl ? (
                     <img
                       src={draft.profilePhotoUrl}
@@ -323,42 +345,81 @@ export default function TeacherDashboardPage() {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-bold text-slate-900 text-base truncate">
-                    {draft.fullName || 'Educator'}
+                  <h3 className="font-bold text-slate-900 text-base truncate group-hover:text-blue-600 transition-colors flex items-center gap-1.5">
+                    <span className="truncate">{draft.fullName || 'Educator'}</span>
+                    <Edit3 className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </h3>
                   <p className="text-xs text-slate-500 font-medium truncate mt-0.5">
                     {draft.highestEducation || 'Certified Teacher'}
                   </p>
                 </div>
-              </div>
+              </Link>
 
-              {/* Subject Tags */}
-              <div className="flex flex-wrap gap-1.5">
+              {/* Subject Tags (Click to edit step 3) */}
+              <Link 
+                href="/create-card/step-3"
+                className="flex flex-wrap gap-1.5 block group"
+                title="Click to edit teaching subjects & skills"
+              >
                 {(draft.subjects && draft.subjects.length > 0 ? draft.subjects : ['General Science', 'Mathematics']).map((s) => (
-                  <Badge key={s} variant="primary" size="sm">
+                  <Badge key={s} variant="primary" size="sm" className="group-hover:border-blue-400 transition-colors">
                     {s}
                   </Badge>
                 ))}
-              </div>
+              </Link>
 
-              {/* Details List */}
+              {/* Details List (Each row directly clickable to its step) */}
               <div className="space-y-2 pt-2 border-t border-slate-200/60 text-xs text-slate-600">
-                <div className="flex justify-between">
+                <Link 
+                  href="/create-card/step-3"
+                  className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-white hover:text-blue-600 transition-colors group cursor-pointer"
+                  title="Click to edit class levels"
+                >
                   <span className="text-slate-500">Classes:</span>
-                  <span className="font-semibold text-slate-800">{draft.classes || '6 - 10'}</span>
-                </div>
-                <div className="flex justify-between">
+                  <span className="font-semibold text-slate-800 group-hover:text-blue-600 flex items-center gap-1">
+                    <span>{draft.classes || '6 - 10'}</span>
+                    <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 text-blue-600" />
+                  </span>
+                </Link>
+
+                <Link 
+                  href="/create-card/step-3"
+                  className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-white hover:text-blue-600 transition-colors group cursor-pointer"
+                  title="Click to edit experience"
+                >
                   <span className="text-slate-500">Experience:</span>
-                  <span className="font-semibold text-slate-800">{draft.experienceYears || 3} Years</span>
-                </div>
-                <div className="flex justify-between">
+                  <span className="font-semibold text-slate-800 group-hover:text-blue-600 flex items-center gap-1">
+                    <span>{draft.experienceYears || 3} Years</span>
+                    <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 text-blue-600" />
+                  </span>
+                </Link>
+
+                <Link 
+                  href="/create-card/step-4"
+                  className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-white hover:text-blue-600 transition-colors group cursor-pointer"
+                  title="Click to edit availability & shifts"
+                >
                   <span className="text-slate-500">Shift:</span>
-                  <span className="font-semibold text-slate-800">{draft.availability || 'Morning'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Expected:</span>
-                  <span className="font-bold text-blue-700">{formattedSalary}</span>
-                </div>
+                  <span className="font-semibold text-slate-800 group-hover:text-blue-600 flex items-center gap-1">
+                    <span>{draft.availability || 'Morning'}</span>
+                    <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 text-blue-600" />
+                  </span>
+                </Link>
+
+                <Link 
+                  href="/create-card/step-5"
+                  className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 transition-colors group cursor-pointer border border-transparent hover:border-emerald-200"
+                  title="Click to edit expected salary"
+                >
+                  <span className="text-slate-700 font-semibold flex items-center gap-1">
+                    <Banknote className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Expected Salary:</span>
+                  </span>
+                  <span className="font-bold text-blue-700 group-hover:text-emerald-700 flex items-center gap-1">
+                    <span>{formattedSalary}</span>
+                    <Edit3 className="w-3 h-3 text-emerald-600" />
+                  </span>
+                </Link>
               </div>
             </div>
 
@@ -371,7 +432,7 @@ export default function TeacherDashboardPage() {
                 href="/create-card/step-1"
                 icon={<Edit3 className="w-4 h-4" />}
               >
-                Edit Profile
+                Edit Complete Profile
               </Button>
               <Button
                 variant="outline"

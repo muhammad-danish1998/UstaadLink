@@ -227,7 +227,28 @@ export default function TeacherProfilePage() {
               {copiedLink ? 'Link Copied!' : 'Share Profile'}
             </Button>
             
-            {!isOwnProfile && role !== 'teacher' && (
+            {isOwnProfile ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  href="/create-card/step-5"
+                  icon={<Banknote className="w-4 h-4 text-emerald-600" />}
+                  className="font-semibold text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                >
+                  Edit Salary
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  href="/create-card/step-1"
+                  icon={<Edit3 className="w-4 h-4" />}
+                  className="shadow-sm font-semibold"
+                >
+                  Edit Profile
+                </Button>
+              </div>
+            ) : role !== 'teacher' ? (
               <Button
                 variant="primary"
                 size="sm"
@@ -237,7 +258,7 @@ export default function TeacherProfilePage() {
               >
                 Contact Teacher
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -329,46 +350,99 @@ export default function TeacherProfilePage() {
 
           {/* Quick Stats Grid Row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-slate-100 bg-slate-50/60 border-b border-slate-100 p-4 sm:p-6 text-center">
-            <div className="p-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Teaching Subjects
-              </span>
-              <span className="text-sm font-bold text-slate-800">
-                {teacher.subjects?.join(', ')}
-              </span>
-            </div>
+            {isOwnProfile ? (
+              <Link href="/create-card/step-3" className="p-3 hover:bg-blue-50/50 rounded-xl transition-colors group cursor-pointer" title="Click to edit subjects">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-blue-600 block mb-1 flex items-center justify-center gap-1">
+                  <span>Teaching Subjects</span>
+                  <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </span>
+                <span className="text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                  {teacher.subjects?.join(', ')}
+                </span>
+              </Link>
+            ) : (
+              <div className="p-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Teaching Subjects
+                </span>
+                <span className="text-sm font-bold text-slate-800">
+                  {teacher.subjects?.join(', ')}
+                </span>
+              </div>
+            )}
 
-            <div className="p-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Class Levels
-              </span>
-              <span className="text-sm font-bold text-slate-800">
-                {teacher.classes}
-              </span>
-            </div>
+            {isOwnProfile ? (
+              <Link href="/create-card/step-3" className="p-3 hover:bg-blue-50/50 rounded-xl transition-colors group cursor-pointer" title="Click to edit class levels">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-blue-600 block mb-1 flex items-center justify-center gap-1">
+                  <span>Class Levels</span>
+                  <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </span>
+                <span className="text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                  {teacher.classes}
+                </span>
+              </Link>
+            ) : (
+              <div className="p-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Class Levels
+                </span>
+                <span className="text-sm font-bold text-slate-800">
+                  {teacher.classes}
+                </span>
+              </div>
+            )}
 
-            <div className="p-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Availability
-              </span>
-              <span className="text-sm font-bold text-slate-800">
-                {teacher.availability}
-              </span>
-            </div>
+            {isOwnProfile ? (
+              <Link href="/create-card/step-4" className="p-3 hover:bg-blue-50/50 rounded-xl transition-colors group cursor-pointer" title="Click to edit availability & shifts">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-blue-600 block mb-1 flex items-center justify-center gap-1">
+                  <span>Availability</span>
+                  <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </span>
+                <span className="text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                  {teacher.availability}
+                </span>
+              </Link>
+            ) : (
+              <div className="p-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Availability
+                </span>
+                <span className="text-sm font-bold text-slate-800">
+                  {teacher.availability}
+                </span>
+              </div>
+            )}
 
-            <div className="p-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                {teacher.teachingMode === 'online' ? 'Online Hourly Rate' : 'Expected Salary'}
-              </span>
-              <span className="text-sm font-bold text-blue-700">
-                {teacher.teachingMode === 'online' 
-                  ? `${teacher.onlineHourlyRate ? 'Rs. ' + Number(teacher.onlineHourlyRate).toLocaleString('en-PK') : 'Rs. 800'} / hr`
-                  : teacher.teachingMode === 'both'
-                    ? `${formattedSalary} / mo (Online: Rs. ${Number(teacher.onlineHourlyRate || 800).toLocaleString('en-PK')}/hr)`
-                    : formattedSalary
-                }
-              </span>
-            </div>
+            {isOwnProfile ? (
+              <Link href="/create-card/step-5" className="p-3 hover:bg-emerald-50 rounded-xl transition-colors group cursor-pointer border border-transparent hover:border-emerald-200" title="Click to change expected salary & rates">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 block mb-1 flex items-center justify-center gap-1">
+                  <span>{teacher.teachingMode === 'online' ? 'Online Hourly Rate' : 'Expected Salary'}</span>
+                  <Edit3 className="w-3 h-3 text-emerald-600" />
+                </span>
+                <span className="text-sm font-bold text-blue-700 group-hover:text-emerald-700 transition-colors underline decoration-dotted">
+                  {teacher.teachingMode === 'online' 
+                    ? `${teacher.onlineHourlyRate ? 'Rs. ' + Number(teacher.onlineHourlyRate).toLocaleString('en-PK') : 'Rs. 800'} / hr`
+                    : teacher.teachingMode === 'both'
+                      ? `${formattedSalary} / mo (Online: Rs. ${Number(teacher.onlineHourlyRate || 800).toLocaleString('en-PK')}/hr)`
+                      : formattedSalary
+                  }
+                </span>
+              </Link>
+            ) : (
+              <div className="p-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  {teacher.teachingMode === 'online' ? 'Online Hourly Rate' : 'Expected Salary'}
+                </span>
+                <span className="text-sm font-bold text-blue-700">
+                  {teacher.teachingMode === 'online' 
+                    ? `${teacher.onlineHourlyRate ? 'Rs. ' + Number(teacher.onlineHourlyRate).toLocaleString('en-PK') : 'Rs. 800'} / hr`
+                    : teacher.teachingMode === 'both'
+                      ? `${formattedSalary} / mo (Online: Rs. ${Number(teacher.onlineHourlyRate || 800).toLocaleString('en-PK')}/hr)`
+                      : formattedSalary
+                  }
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Body Information Sections */}

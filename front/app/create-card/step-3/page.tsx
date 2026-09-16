@@ -39,14 +39,28 @@ const availableSubjects = [
 ];
 
 const classRangeOptions = [
-  { value: '1 - 5 (Primary)', label: 'Classes: 1 - 5 (Primary)' },
-  { value: '6 - 8 (Middle)', label: 'Classes: 6 - 8 (Middle)' },
-  { value: '6 - 10 (Secondary)', label: 'Classes: 6 - 10 (Secondary)' },
-  { value: '9 - 10 (Matric)', label: 'Classes: 9 - 10 (Matric)' },
-  { value: '11 - 12 (Inter / College)', label: 'Classes: 11 - 12 (Intermediate / HSSC)' },
-  { value: 'O / A Levels (Cambridge)', label: 'O / A Levels (Cambridge System)' },
-  { value: 'All Levels (1 - 10)', label: 'All Levels (Classes 1 - 10)' },
+  { value: '1 - 5', label: 'Classes: 1 - 5 (Primary)' },
+  { value: '6 - 8', label: 'Classes: 6 - 8 (Middle)' },
+  { value: '6 - 10', label: 'Classes: 6 - 10 (Secondary)' },
+  { value: '9 - 10', label: 'Classes: 9 - 10 (Matric)' },
+  { value: '11 - 12', label: 'Classes: 11 - 12 (Intermediate / HSSC)' },
+  { value: 'O / A Levels', label: 'O / A Levels (Cambridge System)' },
+  { value: '1 - 10', label: 'All Levels (Classes 1 - 10)' },
 ];
+
+function normalizeClassSelection(val?: string): string {
+  if (!val) return '6 - 10';
+  const clean = val.trim();
+  const lower = clean.toLowerCase();
+  if (clean.includes('9 - 10') || clean.includes('9-10') || lower.includes('matric')) return '9 - 10';
+  if (clean.includes('1 - 5') || clean.includes('1-5') || lower.includes('primary')) return '1 - 5';
+  if (clean.includes('6 - 8') || clean.includes('6-8') || lower.includes('middle')) return '6 - 8';
+  if (clean.includes('11 - 12') || clean.includes('11-12') || lower.includes('inter') || lower.includes('hssc')) return '11 - 12';
+  if (clean.includes('1 - 10') || clean.includes('1-10') || lower.includes('all')) return '1 - 10';
+  if (lower.includes('o-level') || lower.includes('a-level') || lower.includes('cambridge') || clean.includes('O / A') || lower.includes('o / a')) return 'O / A Levels';
+  if (clean.includes('6 - 10') || clean.includes('6-10') || lower.includes('secondary')) return '6 - 10';
+  return clean;
+}
 
 const availableTeachingSkills = [
   'Classroom Management',
@@ -65,7 +79,7 @@ export default function CreateCardStep3Page() {
 
   const [formData, setFormData] = useState({
     subjects: ['English', 'Urdu'] as string[],
-    classes: '6 - 10 (Secondary)',
+    classes: '6 - 10',
     experienceYears: 3,
     previousSchool: 'City Grammar School',
     teachingSkills: ['Classroom Management', 'Lesson Planning', 'Board Exam Preparation'] as string[],
@@ -76,15 +90,13 @@ export default function CreateCardStep3Page() {
 
   useEffect(() => {
     const draft = getCardDraft();
-    if (draft.subjects && draft.subjects.length > 0) {
-      setFormData({
-        subjects: draft.subjects,
-        classes: draft.classes || '6 - 10 (Secondary)',
-        experienceYears: draft.experienceYears !== undefined ? draft.experienceYears : 3,
-        previousSchool: draft.previousSchool || '',
-        teachingSkills: draft.teachingSkills || ['Classroom Management', 'Lesson Planning'],
-      });
-    }
+    setFormData({
+      subjects: draft.subjects && draft.subjects.length > 0 ? draft.subjects : ['English', 'Urdu'],
+      classes: normalizeClassSelection(draft.classes),
+      experienceYears: draft.experienceYears !== undefined ? draft.experienceYears : 3,
+      previousSchool: draft.previousSchool || '',
+      teachingSkills: draft.teachingSkills && draft.teachingSkills.length > 0 ? draft.teachingSkills : ['Classroom Management', 'Lesson Planning', 'Board Exam Preparation'],
+    });
   }, []);
 
   const toggleSubject = (subject: string) => {
@@ -143,7 +155,7 @@ export default function CreateCardStep3Page() {
 
     const updated = saveCardDraft({
       subjects: formData.subjects,
-      classes: formData.classes.split(' ')[0] === 'All' ? '1 - 10' : formData.classes.replace(/\s*\(.*\)/, ''),
+      classes: formData.classes,
       experienceYears: Number(formData.experienceYears),
       previousSchool: formData.previousSchool.trim(),
       teachingSkills: formData.teachingSkills,

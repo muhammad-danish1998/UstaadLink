@@ -60,12 +60,13 @@ const subjectOptions = [
 
 const classOptions = [
   { value: '', label: 'All Classes' },
-  { value: 'Primary', label: 'Primary (Class 1-5)' },
-  { value: 'Middle', label: 'Middle (Class 6-8)' },
-  { value: 'Secondary', label: 'Secondary (Class 9-10 / Matric)' },
-  { value: 'Higher Secondary', label: 'Higher Secondary (Class 11-12 / Inter)' },
-  { value: 'O-Level', label: 'O-Level' },
-  { value: 'A-Level', label: 'A-Level' },
+  { value: '1 - 5', label: 'Primary (Class 1-5)' },
+  { value: '6 - 8', label: 'Middle (Class 6-8)' },
+  { value: '6 - 10', label: 'Secondary (Class 6-10)' },
+  { value: '9 - 10', label: 'Matric (Class 9-10)' },
+  { value: '11 - 12', label: 'Intermediate (Class 11-12)' },
+  { value: 'O / A Levels', label: 'O / A Levels (Cambridge)' },
+  { value: '1 - 10', label: 'All Levels (Class 1-10)' },
 ];
 
 const availabilityOptions = [
@@ -192,7 +193,15 @@ function FindTeachersContent() {
 
         // Class Level Filter
         if (selectedClass) {
-          if (!t.classes.includes(selectedClass)) return false;
+          const tClasses = t.classes || '';
+          const matchClass =
+            tClasses === selectedClass ||
+            tClasses.includes(selectedClass) ||
+            (selectedClass === '9 - 10' && (tClasses.includes('9 - 10') || tClasses.includes('6 - 10') || tClasses.includes('1 - 10') || tClasses.toLowerCase().includes('matric'))) ||
+            (selectedClass === '6 - 8' && (tClasses.includes('6 - 8') || tClasses.includes('6 - 10') || tClasses.includes('1 - 10') || tClasses.toLowerCase().includes('middle'))) ||
+            (selectedClass === '1 - 5' && (tClasses.includes('1 - 5') || tClasses.includes('1 - 10') || tClasses.toLowerCase().includes('primary'))) ||
+            (selectedClass === '6 - 10' && (tClasses.includes('6 - 10') || tClasses.includes('1 - 10')));
+          if (!matchClass) return false;
         }
 
         // Town Filter (Only for teachers with physical location)
