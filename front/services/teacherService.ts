@@ -516,8 +516,10 @@ export async function getTeacherBySlug(slug: string) {
     const localT = localTeachers.find(lt => lt.slug === cleanSlug || lt.id === cleanSlug || lt.fullName?.toLowerCase().replace(/[^a-z0-9]+/g, '-') === cleanSlug);
     if (localT) return localT;
 
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanSlug);
+
     // 2. Query teachers table with relational tables
-    const { data } = await supabase
+    let teacherQuery = supabase
       .from('teachers')
       .select(`
         id,
@@ -562,9 +564,15 @@ export async function getTeacherBySlug(slug: string) {
             name
           )
         )
-      `)
-      .or(`slug.eq.${cleanSlug},id.eq.${cleanSlug}`)
-      .maybeSingle();
+      `);
+
+    if (isUUID) {
+      teacherQuery = teacherQuery.or(`slug.eq.${cleanSlug},id.eq.${cleanSlug},user_id.eq.${cleanSlug}`);
+    } else {
+      teacherQuery = teacherQuery.eq('slug', cleanSlug);
+    }
+
+    const { data } = await teacherQuery.maybeSingle();
 
     if (data) {
       const profileObj = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
@@ -619,12 +627,18 @@ export async function getTeacherBySlug(slug: string) {
     }
 
     // 3. Query profiles table by role teacher
-    const { data: profData } = await supabase
+    let profQuery = supabase
       .from('profiles')
       .select('*')
-      .eq('role', 'teacher')
-      .or(`id.eq.${cleanSlug},full_name.ilike.%${cleanSlug.replace(/-/g, ' ')}%`)
-      .maybeSingle();
+      .eq('role', 'teacher');
+
+    if (isUUID) {
+      profQuery = profQuery.eq('id', cleanSlug);
+    } else {
+      profQuery = profQuery.ilike('full_name', `%${cleanSlug.replace(/-/g, ' ')}%`);
+    }
+
+    const { data: profData } = await profQuery.maybeSingle();
 
     if (profData) {
       return {
