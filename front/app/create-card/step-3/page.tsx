@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { StepSidebar } from '@/components/teacher/StepSidebar';
 import { getCardDraft, saveCardDraft } from '@/lib/cardBuilderStorage';
-import { publishTeacherCard } from '@/services/teacherService';
+import { publishTeacherCard, normalizeClassLevel } from '@/services/teacherService';
 
 const availableSubjects = [
   'Mathematics',
@@ -47,20 +47,6 @@ const classRangeOptions = [
   { value: 'O / A Levels', label: 'O / A Levels (Cambridge System)' },
   { value: '1 - 10', label: 'All Levels (Classes 1 - 10)' },
 ];
-
-function normalizeClassSelection(val?: string): string {
-  if (!val) return '6 - 10';
-  const clean = val.trim();
-  const lower = clean.toLowerCase();
-  if (clean.includes('9 - 10') || clean.includes('9-10') || lower.includes('matric')) return '9 - 10';
-  if (clean.includes('1 - 5') || clean.includes('1-5') || lower.includes('primary')) return '1 - 5';
-  if (clean.includes('6 - 8') || clean.includes('6-8') || lower.includes('middle')) return '6 - 8';
-  if (clean.includes('11 - 12') || clean.includes('11-12') || lower.includes('inter') || lower.includes('hssc')) return '11 - 12';
-  if (clean.includes('1 - 10') || clean.includes('1-10') || lower.includes('all')) return '1 - 10';
-  if (lower.includes('o-level') || lower.includes('a-level') || lower.includes('cambridge') || clean.includes('O / A') || lower.includes('o / a')) return 'O / A Levels';
-  if (clean.includes('6 - 10') || clean.includes('6-10') || lower.includes('secondary')) return '6 - 10';
-  return clean;
-}
 
 const availableTeachingSkills = [
   'Classroom Management',
@@ -92,7 +78,7 @@ export default function CreateCardStep3Page() {
     const draft = getCardDraft();
     setFormData({
       subjects: draft.subjects && draft.subjects.length > 0 ? draft.subjects : ['English', 'Urdu'],
-      classes: normalizeClassSelection(draft.classes),
+      classes: normalizeClassLevel(draft.classes),
       experienceYears: draft.experienceYears !== undefined ? draft.experienceYears : 3,
       previousSchool: draft.previousSchool || '',
       teachingSkills: draft.teachingSkills && draft.teachingSkills.length > 0 ? draft.teachingSkills : ['Classroom Management', 'Lesson Planning', 'Board Exam Preparation'],

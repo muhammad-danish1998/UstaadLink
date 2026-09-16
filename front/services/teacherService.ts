@@ -55,19 +55,91 @@ export function invalidateTeacherCache() {
 }
 
 export function normalizeClassLevel(val?: string): string {
-  if (!val) return '9 - 10';
+  if (!val) return '6 - 10';
   const clean = String(val).trim();
   const lower = clean.toLowerCase();
   
-  if ((clean.includes('9') && clean.includes('10')) || lower.includes('matric') || lower.includes('secondary (class 9')) return '9 - 10';
-  if ((clean.includes('1') && clean.includes('5')) || lower.includes('primary')) return '1 - 5';
-  if ((clean.includes('6') && clean.includes('8')) || lower.includes('middle')) return '6 - 8';
-  if ((clean.includes('11') && clean.includes('12')) || lower.includes('inter') || lower.includes('hssc') || lower.includes('higher secondary')) return '11 - 12';
-  if ((clean.includes('1') && clean.includes('10') && !clean.includes('6') && !clean.includes('9')) || lower.includes('all level')) return '1 - 10';
-  if (lower.includes('o-level') || lower.includes('a-level') || lower.includes('cambridge') || lower.includes('o / a') || lower.includes('o/a')) return 'O / A Levels';
-  if (clean.includes('6 - 10') || clean.includes('6-10') || lower.includes('secondary')) return '6 - 10';
-  
-  return clean.replace(/^Class(es)?\s*:?\s*/i, '').trim();
+  // 1. All Levels (1 - 10)
+  if (
+    clean === '1 - 10' ||
+    clean === '1-10' ||
+    lower.includes('all level') ||
+    lower.includes('1 to 10') ||
+    (lower.includes('primary') && lower.includes('middle') && (lower.includes('matric') || lower.includes('secondary')))
+  ) {
+    return '1 - 10';
+  }
+
+  // 2. Classes 6 - 10 (Secondary covering Middle 6-8 + Matric 9-10)
+  if (
+    clean === '6 - 10' ||
+    clean === '6-10' ||
+    clean.includes('6 - 10') ||
+    clean.includes('6-10') ||
+    (lower.includes('middle') && (lower.includes('matric') || lower.includes('secondary (class 9') || lower.includes('secondary'))) ||
+    ((lower.includes('6-8') || lower.includes('6 - 8')) && (lower.includes('9-10') || lower.includes('9 - 10')))
+  ) {
+    return '6 - 10';
+  }
+
+  // 3. Cambridge O / A Levels
+  if (
+    lower.includes('o-level') ||
+    lower.includes('a-level') ||
+    lower.includes('o / a') ||
+    lower.includes('o/a') ||
+    lower.includes('cambridge') ||
+    clean.includes('O / A')
+  ) {
+    return 'O / A Levels';
+  }
+
+  // 4. Higher Secondary / Inter (11 - 12)
+  if (
+    clean === '11 - 12' ||
+    clean === '11-12' ||
+    lower.includes('11 - 12') ||
+    lower.includes('11-12') ||
+    lower.includes('higher secondary') ||
+    lower.includes('inter') ||
+    lower.includes('hssc') ||
+    lower.includes('fsc')
+  ) {
+    return '11 - 12';
+  }
+
+  // 5. Matric / Secondary (9 - 10)
+  if (
+    clean === '9 - 10' ||
+    clean === '9-10' ||
+    lower.includes('matric') ||
+    (lower.includes('9') && lower.includes('10')) ||
+    (lower.includes('secondary') && !lower.includes('6') && !lower.includes('middle') && !lower.includes('higher'))
+  ) {
+    return '9 - 10';
+  }
+
+  // 6. Middle (6 - 8)
+  if (
+    clean === '6 - 8' ||
+    clean === '6-8' ||
+    lower.includes('middle') ||
+    (lower.includes('6') && lower.includes('8') && !lower.includes('10'))
+  ) {
+    return '6 - 8';
+  }
+
+  // 7. Primary (1 - 5)
+  if (
+    clean === '1 - 5' ||
+    clean === '1-5' ||
+    lower.includes('primary') ||
+    (lower.includes('1') && lower.includes('5') && !lower.includes('10'))
+  ) {
+    return '1 - 5';
+  }
+
+  return clean.replace(/^Class(es)?\s*:?\s*/i, '').trim() || '6 - 10';
 }
 
 export interface TeacherFilterParams {
@@ -435,7 +507,12 @@ export async function getTeacherBySlug(slug: string) {
     const supabase = createClient();
     const cleanSlug = (slug || '').toLowerCase().trim();
 
-    // 1. Query teachers table
+    // 1. Check local registered teachers first (instant & reliable for current browser sessions)
+    const localTeachers = getLocalRegisteredTeachers();
+    const localT = localTeachers.find(lt => lt.slug === cleanSlug || lt.id === cleanSlug || lt.fullName?.toLowerCase().replace(/[^a-z0-9]+/g, '-') === cleanSlug);
+    if (localT) return localT;
+
+    // 2. Query teachers table with relational tables
     const { data } = await supabase
       .from('teachers')
       .select(`
@@ -453,7 +530,11 @@ export async function getTeacherBySlug(slug: string) {
         city,
         district,
         town_area,
+        uc,
         expected_salary,
+        monthly_salary,
+        online_hourly_rate,
+        teaching_mode,
         about_me,
         moderation_status,
         created_at,
@@ -461,6 +542,21 @@ export async function getTeacherBySlug(slug: string) {
           full_name,
           email,
           phone
+        ),
+        teacher_subjects (
+          subjects (
+            name
+          )
+        ),
+        teacher_classes (
+          classes (
+            name
+          )
+        ),
+        teacher_skills (
+          skills (
+            name
+          )
         )
       `)
       .or(`slug.eq.${cleanSlug},id.eq.${cleanSlug}`)
@@ -479,6 +575,10 @@ export async function getTeacherBySlug(slug: string) {
         };
       }
 
+      const subs = (data as any).teacher_subjects?.map((ts: any) => ts.subjects?.name).filter(Boolean) || [];
+      const cls = (data as any).teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean).join(', ') || '';
+      const sks = (data as any).teacher_skills?.map((tsk: any) => tsk.skills?.name).filter(Boolean) || [];
+
       const mode = (data as any).teaching_mode || 'onsite';
       const monthlyAmt = mode === 'online' ? null : Number((data as any).monthly_salary ?? data.expected_salary) || 35000;
       const hourlyAmt = mode === 'onsite' ? null : Number((data as any).online_hourly_rate) || 800;
@@ -491,9 +591,9 @@ export async function getTeacherBySlug(slug: string) {
         highestEducation: data.highest_education || 'Certified Educator',
         institution: data.institution || 'University of Karachi',
         additionalQualifications: data.additional_qualifications || '',
-        subjects: ['General Science', 'Mathematics'],
-        classes: '9 - 10',
-        skills: ['Classroom Management', 'Lesson Planning', 'Student Assessment', 'Board Exam Preparation'],
+        subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
+        classes: normalizeClassLevel(cls || '6 - 10'),
+        skills: sks.length > 0 ? sks : ['Classroom Management', 'Lesson Planning', 'Student Assessment', 'Board Exam Preparation'],
         experienceYears: Number(data.experience_years) || 2,
         previousSchool: data.previous_school || '',
         availability: data.availability || 'Morning',
@@ -514,7 +614,7 @@ export async function getTeacherBySlug(slug: string) {
       };
     }
 
-    // 2. Query profiles table by role teacher
+    // 3. Query profiles table by role teacher
     const { data: profData } = await supabase
       .from('profiles')
       .select('*')
@@ -532,7 +632,7 @@ export async function getTeacherBySlug(slug: string) {
         institution: 'University of Karachi',
         additionalQualifications: '',
         subjects: ['General Science', 'Mathematics'],
-        classes: '9 - 10',
+        classes: '6 - 10',
         skills: ['Classroom Management', 'Lesson Planning', 'Student Assessment', 'Board Exam Preparation'],
         experienceYears: 2,
         previousSchool: '',
@@ -554,10 +654,7 @@ export async function getTeacherBySlug(slug: string) {
       };
     }
 
-    // 3. Fallback to local draft
-    const localTeachers = getLocalRegisteredTeachers();
-    const localT = localTeachers.find(lt => lt.slug === cleanSlug || lt.id === cleanSlug);
-    if (localT) return localT;
+    // 4. Fallback to local draft
 
     const draft = getCardDraft();
     if (draft && draft.fullName) {
@@ -956,21 +1053,47 @@ export async function publishTeacherCard(draftData: any) {
         const normClass = normalizeClassLevel(rawClassStr);
         const { data: dbClasses } = await supabase.from('classes').select('id, name');
         if (dbClasses && dbClasses.length > 0) {
-          const matched = dbClasses.filter(c => {
-            const dbNorm = normalizeClassLevel(c.name);
-            return dbNorm === normClass || 
-                   c.name.toLowerCase().includes(rawClassStr.toLowerCase()) || 
-                   rawClassStr.toLowerCase().includes(c.name.toLowerCase());
-          });
+          let matched: any[] = [];
+
+          if (normClass === '1 - 5') {
+            matched = dbClasses.filter(c => c.name.toLowerCase().includes('primary') || c.name.includes('1-5') || c.name.includes('1 - 5'));
+          } else if (normClass === '6 - 8') {
+            matched = dbClasses.filter(c => c.name.toLowerCase().includes('middle') || c.name.includes('6-8') || c.name.includes('6 - 8'));
+          } else if (normClass === '9 - 10') {
+            matched = dbClasses.filter(c => c.name.toLowerCase().includes('matric') || (c.name.toLowerCase().includes('secondary') && !c.name.toLowerCase().includes('higher')));
+          } else if (normClass === '6 - 10') {
+            // Links both Middle and Secondary (9-10 / Matric)
+            matched = dbClasses.filter(c => 
+              c.name.toLowerCase().includes('middle') || 
+              (c.name.toLowerCase().includes('secondary') && !c.name.toLowerCase().includes('higher')) ||
+              c.name.includes('6-8') || c.name.includes('9-10')
+            );
+          } else if (normClass === '1 - 10') {
+            // Links Primary, Middle and Secondary
+            matched = dbClasses.filter(c => 
+              c.name.toLowerCase().includes('primary') ||
+              c.name.toLowerCase().includes('middle') ||
+              (c.name.toLowerCase().includes('secondary') && !c.name.toLowerCase().includes('higher'))
+            );
+          } else if (normClass === '11 - 12') {
+            matched = dbClasses.filter(c => c.name.toLowerCase().includes('higher secondary') || c.name.toLowerCase().includes('inter') || c.name.includes('11-12'));
+          } else if (normClass === 'O / A Levels') {
+            matched = dbClasses.filter(c => c.name.toLowerCase().includes('o-level') || c.name.toLowerCase().includes('a-level') || c.name.toLowerCase().includes('cambridge'));
+          }
+
+          if (matched.length === 0) {
+            matched = dbClasses.filter(c => {
+              const dbNorm = normalizeClassLevel(c.name);
+              return dbNorm === normClass || 
+                     c.name.toLowerCase().includes(rawClassStr.toLowerCase()) || 
+                     rawClassStr.toLowerCase().includes(c.name.toLowerCase());
+            });
+          }
 
           if (matched.length > 0) {
             await supabase.from('teacher_classes').delete().eq('teacher_id', teacherRowId);
             const clsInserts = matched.map((c) => ({ teacher_id: teacherRowId, class_id: c.id }));
             await supabase.from('teacher_classes').insert(clsInserts);
-          } else if (dbClasses.length > 0) {
-            // Best effort link first class if exact match not found
-            await supabase.from('teacher_classes').delete().eq('teacher_id', teacherRowId);
-            await supabase.from('teacher_classes').insert([{ teacher_id: teacherRowId, class_id: dbClasses[0].id }]);
           }
         }
       }

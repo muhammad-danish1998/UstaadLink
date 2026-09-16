@@ -127,23 +127,94 @@ assert.strictEqual(salaryFiltered.length, 2, 'Salary filter excludes teachers ab
 // Test 3: Class Level Normalization and Matching
 function normalizeClassSelection(val?: string): string {
   if (!val) return '6 - 10';
-  const clean = val.trim();
+  const clean = String(val).trim();
   const lower = clean.toLowerCase();
-  if (clean.includes('9 - 10') || clean.includes('9-10') || lower.includes('matric')) return '9 - 10';
-  if (clean.includes('1 - 5') || clean.includes('1-5') || lower.includes('primary')) return '1 - 5';
-  if (clean.includes('6 - 8') || clean.includes('6-8') || lower.includes('middle')) return '6 - 8';
-  if (clean.includes('11 - 12') || clean.includes('11-12') || lower.includes('inter') || lower.includes('hssc')) return '11 - 12';
-  if (clean.includes('1 - 10') || clean.includes('1-10') || lower.includes('all')) return '1 - 10';
-  if (lower.includes('o-level') || lower.includes('a-level') || lower.includes('cambridge') || clean.includes('O / A') || lower.includes('o / a')) return 'O / A Levels';
-  if (clean.includes('6 - 10') || clean.includes('6-10') || lower.includes('secondary')) return '6 - 10';
-  return clean;
+  
+  if (
+    clean === '1 - 10' ||
+    clean === '1-10' ||
+    lower.includes('all level') ||
+    lower.includes('1 to 10') ||
+    (lower.includes('primary') && lower.includes('middle') && (lower.includes('matric') || lower.includes('secondary')))
+  ) {
+    return '1 - 10';
+  }
+
+  if (
+    clean === '6 - 10' ||
+    clean === '6-10' ||
+    clean.includes('6 - 10') ||
+    clean.includes('6-10') ||
+    (lower.includes('middle') && (lower.includes('matric') || lower.includes('secondary (class 9') || lower.includes('secondary'))) ||
+    ((lower.includes('6-8') || lower.includes('6 - 8')) && (lower.includes('9-10') || lower.includes('9 - 10')))
+  ) {
+    return '6 - 10';
+  }
+
+  if (
+    lower.includes('o-level') ||
+    lower.includes('a-level') ||
+    lower.includes('o / a') ||
+    lower.includes('o/a') ||
+    lower.includes('cambridge') ||
+    clean.includes('O / A')
+  ) {
+    return 'O / A Levels';
+  }
+
+  if (
+    clean === '11 - 12' ||
+    clean === '11-12' ||
+    lower.includes('11 - 12') ||
+    lower.includes('11-12') ||
+    lower.includes('higher secondary') ||
+    lower.includes('inter') ||
+    lower.includes('hssc') ||
+    lower.includes('fsc')
+  ) {
+    return '11 - 12';
+  }
+
+  if (
+    clean === '9 - 10' ||
+    clean === '9-10' ||
+    lower.includes('matric') ||
+    (lower.includes('9') && lower.includes('10')) ||
+    (lower.includes('secondary') && !lower.includes('6') && !lower.includes('middle') && !lower.includes('higher'))
+  ) {
+    return '9 - 10';
+  }
+
+  if (
+    clean === '6 - 8' ||
+    clean === '6-8' ||
+    lower.includes('middle') ||
+    (lower.includes('6') && lower.includes('8') && !lower.includes('10'))
+  ) {
+    return '6 - 8';
+  }
+
+  if (
+    clean === '1 - 5' ||
+    clean === '1-5' ||
+    lower.includes('primary') ||
+    (lower.includes('1') && lower.includes('5') && !lower.includes('10'))
+  ) {
+    return '1 - 5';
+  }
+
+  return clean.replace(/^Class(es)?\s*:?\s*/i, '').trim() || '6 - 10';
 }
 
 assert.strictEqual(normalizeClassSelection('9 - 10 (Matric)'), '9 - 10', 'Normalizes 9 - 10 (Matric) to 9 - 10');
 assert.strictEqual(normalizeClassSelection('9-10'), '9 - 10', 'Normalizes 9-10 to 9 - 10');
 assert.strictEqual(normalizeClassSelection('6 - 10 (Secondary)'), '6 - 10', 'Normalizes 6 - 10 (Secondary) to 6 - 10');
+assert.strictEqual(normalizeClassSelection('6 - 8 (Middle)'), '6 - 8', 'Normalizes 6 - 8 (Middle) to 6 - 8');
 assert.strictEqual(normalizeClassSelection('1 - 5 (Primary)'), '1 - 5', 'Normalizes 1 - 5 (Primary) to 1 - 5');
+assert.strictEqual(normalizeClassSelection('11 - 12 (Intermediate / HSSC)'), '11 - 12', 'Normalizes 11 - 12 to 11 - 12');
+assert.strictEqual(normalizeClassSelection('O / A Levels (Cambridge System)'), 'O / A Levels', 'Normalizes Cambridge to O / A Levels');
 assert.strictEqual(normalizeClassSelection('All Levels (1 - 10)'), '1 - 10', 'Normalizes All Levels to 1 - 10');
+assert.strictEqual(normalizeClassSelection('Middle (Class 6-8), Secondary (Class 9-10 / Matric)'), '6 - 10', 'Normalizes combined 6-8 and 9-10 to 6 - 10');
 
 console.log('✓ Class normalization verified successfully');
 console.log('ALL TEACHING MODE & EDIT TESTS PASSED!');
