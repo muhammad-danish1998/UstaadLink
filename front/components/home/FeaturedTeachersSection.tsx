@@ -67,7 +67,7 @@ export const FeaturedTeachersSection: React.FC<FeaturedTeachersSectionProps> = (
           icon={<ArrowRight className="w-4 h-4" />}
           className="self-start sm:self-auto"
         >
-          View All Teachers
+          View All Teacher
         </Button>
       </div>
 
