@@ -260,6 +260,24 @@ export default function CreateCardStep4Page() {
                     );
                   })}
                 </div>
+
+                {formData.teachingMode === 'online' && (
+                  <div className="mt-3 p-3 rounded-xl bg-purple-50 border border-purple-200/80 flex items-center gap-2.5 text-xs text-purple-900">
+                    <Laptop className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>
+                      <strong>Online Tutoring Mode Selected:</strong> You will set your <strong>Hourly Tutoring Fee (Rs. / hour)</strong> in the next step.
+                    </span>
+                  </div>
+                )}
+
+                {formData.teachingMode === 'both' && (
+                  <div className="mt-3 p-3 rounded-xl bg-teal-50 border border-teal-200/80 flex items-center gap-2.5 text-xs text-teal-900">
+                    <RefreshCw className="w-4 h-4 text-teal-600 shrink-0" />
+                    <span>
+                      <strong>Hybrid (On-site + Online) Selected:</strong> You will set both your <strong>Monthly Salary</strong> and <strong>Online Hourly Fee</strong> in the next step.
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Availability Shift Selection (Morning / Evening / Both) */}

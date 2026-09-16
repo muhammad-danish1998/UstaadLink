@@ -26,7 +26,10 @@ import {
   Check,
   MapPin,
   GraduationCap,
-  Banknote
+  Banknote,
+  Laptop,
+  Building,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -178,11 +181,19 @@ export default function TeacherDashboardPage() {
 
   if (!draft) return null;
 
+  const mode = draft.teachingMode || 'onsite';
+
   const formattedSalary = new Intl.NumberFormat('en-PK', {
     style: 'currency',
     currency: 'PKR',
     maximumFractionDigits: 0,
-  }).format(draft.expectedSalary || 35000);
+  }).format(draft.monthlySalary || draft.expectedSalary || 35000);
+
+  const formattedHourlyRate = new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    maximumFractionDigits: 0,
+  }).format(draft.onlineHourlyRate || 800);
 
   const pendingRequestsCount = requests.filter(r => r.status === 'pending').length;
 
@@ -260,16 +271,34 @@ export default function TeacherDashboardPage() {
             >
               <div className="flex items-center justify-between text-emerald-700 mb-1">
                 <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                  <span>Expected Salary</span>
+                  <span>{mode === 'online' ? 'Online Hourly Rate' : mode === 'both' ? 'Salary & Hourly Rates' : 'Expected Salary'}</span>
                   <Edit3 className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
                 </span>
-                <Banknote className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+                {mode === 'online' ? (
+                  <Laptop className="w-4 h-4 text-purple-600 group-hover:scale-110 transition-transform" />
+                ) : mode === 'both' ? (
+                  <RefreshCw className="w-4 h-4 text-teal-600 group-hover:scale-110 transition-transform" />
+                ) : (
+                  <Banknote className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+                )}
               </div>
               <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 block truncate group-hover:text-emerald-800 transition-colors">
-                {formattedSalary}
+                {mode === 'online' 
+                  ? `${formattedHourlyRate} / hr` 
+                  : mode === 'both'
+                    ? `${formattedSalary} / mo`
+                    : formattedSalary
+                }
               </span>
               <span className="text-xs text-emerald-700 font-medium flex items-center justify-between">
-                <span>PKR / month &bull; Shift: {draft.availability || 'Morning'}</span>
+                <span>
+                  {mode === 'online' 
+                    ? `Online Tutoring &bull; Shift: ${draft.availability || 'Flexible'}` 
+                    : mode === 'both'
+                      ? `Online: ${formattedHourlyRate}/hr &bull; Shift: ${draft.availability || 'Flexible'}`
+                      : `PKR / month &bull; Shift: ${draft.availability || 'Morning'}`
+                  }
+                </span>
                 <span className="text-[11px] font-bold underline opacity-80 group-hover:opacity-100">Change &rarr;</span>
               </span>
             </Link>
@@ -397,6 +426,20 @@ export default function TeacherDashboardPage() {
                 <Link 
                   href="/create-card/step-4"
                   className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-white hover:text-blue-600 transition-colors group cursor-pointer"
+                  title="Click to edit teaching mode (On-site, Online, Both)"
+                >
+                  <span className="text-slate-500">Mode:</span>
+                  <span className="font-semibold text-slate-800 group-hover:text-blue-600 flex items-center gap-1">
+                    <span>
+                      {mode === 'online' ? 'Online Tutoring' : mode === 'both' ? 'On-site + Online' : 'On-site School'}
+                    </span>
+                    <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 text-blue-600" />
+                  </span>
+                </Link>
+
+                <Link 
+                  href="/create-card/step-4"
+                  className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-white hover:text-blue-600 transition-colors group cursor-pointer"
                   title="Click to edit availability & shifts"
                 >
                   <span className="text-slate-500">Shift:</span>
@@ -406,20 +449,39 @@ export default function TeacherDashboardPage() {
                   </span>
                 </Link>
 
-                <Link 
-                  href="/create-card/step-5"
-                  className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 transition-colors group cursor-pointer border border-transparent hover:border-emerald-200"
-                  title="Click to edit expected salary"
-                >
-                  <span className="text-slate-700 font-semibold flex items-center gap-1">
-                    <Banknote className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Expected Salary:</span>
-                  </span>
-                  <span className="font-bold text-blue-700 group-hover:text-emerald-700 flex items-center gap-1">
-                    <span>{formattedSalary}</span>
-                    <Edit3 className="w-3 h-3 text-emerald-600" />
-                  </span>
-                </Link>
+                {mode !== 'online' && (
+                  <Link 
+                    href="/create-card/step-5"
+                    className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 transition-colors group cursor-pointer border border-transparent hover:border-emerald-200"
+                    title="Click to edit monthly salary"
+                  >
+                    <span className="text-slate-700 font-semibold flex items-center gap-1">
+                      <Banknote className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Monthly Salary:</span>
+                    </span>
+                    <span className="font-bold text-blue-700 group-hover:text-emerald-700 flex items-center gap-1">
+                      <span>{formattedSalary}</span>
+                      <Edit3 className="w-3 h-3 text-emerald-600" />
+                    </span>
+                  </Link>
+                )}
+
+                {mode !== 'onsite' && (
+                  <Link 
+                    href="/create-card/step-5"
+                    className="flex justify-between items-center py-1 px-1.5 rounded-lg hover:bg-purple-50 hover:text-purple-700 transition-colors group cursor-pointer border border-transparent hover:border-purple-200"
+                    title="Click to edit online tutoring hourly rate"
+                  >
+                    <span className="text-purple-800 font-semibold flex items-center gap-1">
+                      <Laptop className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Online Hourly Fee:</span>
+                    </span>
+                    <span className="font-bold text-purple-700 group-hover:text-purple-900 flex items-center gap-1">
+                      <span>{formattedHourlyRate} / hr</span>
+                      <Edit3 className="w-3 h-3 text-purple-600" />
+                    </span>
+                  </Link>
+                )}
               </div>
             </div>
 

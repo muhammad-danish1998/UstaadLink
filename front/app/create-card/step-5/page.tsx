@@ -61,6 +61,24 @@ export default function CreateCardStep5Page() {
     });
   }, []);
 
+  const handleModeChange = (newMode: 'onsite' | 'online' | 'both') => {
+    setTeachingMode(newMode);
+    // Clear validation errors for the opposite mode
+    if (newMode === 'online') {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.expectedSalary;
+        return next;
+      });
+    } else if (newMode === 'onsite') {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.onlineHourlyRate;
+        return next;
+      });
+    }
+  };
+
   const validate = () => {
     const errs: Record<string, string> = {};
 
@@ -91,7 +109,8 @@ export default function CreateCardStep5Page() {
     if (!validate()) return;
 
     const updated = saveCardDraft({
-      expectedSalary: teachingMode === 'online' ? (formData.onlineHourlyRate * 40) : Number(formData.expectedSalary),
+      teachingMode: teachingMode,
+      expectedSalary: teachingMode === 'online' ? (Number(formData.onlineHourlyRate) * 40) : Number(formData.expectedSalary),
       monthlySalary: teachingMode === 'online' ? undefined : Number(formData.expectedSalary),
       onlineHourlyRate: teachingMode === 'onsite' ? undefined : Number(formData.onlineHourlyRate),
       aboutMe: formData.aboutMe.trim(),
@@ -143,27 +162,71 @@ export default function CreateCardStep5Page() {
             <form onSubmit={handleSubmit} className="space-y-6">
               
               <div className="border-b border-slate-100 pb-4">
-                <div className="flex items-center gap-2 mb-1">
-                  {teachingMode === 'online' ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                      <Laptop className="w-3.5 h-3.5" /> Online Tutoring Rate
-                    </span>
-                  ) : teachingMode === 'both' ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">
-                      <RefreshCw className="w-3.5 h-3.5" /> On-site &amp; Online Rates
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                      <Building className="w-3.5 h-3.5" /> School Monthly Salary
-                    </span>
-                  )}
-                </div>
                 <h3 className="text-lg font-bold text-slate-900">
-                  {teachingMode === 'online' ? 'Online Tutoring Rate & Bio' : 'Expected Salary & Introduction'}
+                  Teaching Mode, Rates &amp; Introduction
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Set transparent pricing expectations and introduce yourself to hiring schools and students.
+                  Click your teaching mode below to set your monthly school salary and online hourly tutoring rates.
                 </p>
+              </div>
+
+              {/* Mode Selection Tabs (On-site / Online / Both) */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-700 tracking-wide">
+                  Teaching Mode (Click to switch rates)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {[
+                    {
+                      id: 'onsite',
+                      label: 'On-site School',
+                      icon: Building,
+                      activeColor: 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-500/20',
+                      badge: 'Monthly Salary',
+                    },
+                    {
+                      id: 'online',
+                      label: 'Online Tutoring',
+                      icon: Laptop,
+                      activeColor: 'border-purple-600 bg-purple-50/80 text-purple-900 ring-2 ring-purple-500/20',
+                      badge: 'Hourly Rate (Rs./hr)',
+                    },
+                    {
+                      id: 'both',
+                      label: 'Both (On-site + Online)',
+                      icon: RefreshCw,
+                      activeColor: 'border-teal-600 bg-teal-50/80 text-teal-900 ring-2 ring-teal-500/20',
+                      badge: 'Monthly + Hourly',
+                    },
+                  ].map((tab) => {
+                    const isSelected = teachingMode === tab.id;
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => handleModeChange(tab.id as any)}
+                        className={`
+                          p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between
+                          ${isSelected 
+                            ? tab.activeColor + ' shadow-xs' 
+                            : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
+                          }
+                        `.trim()}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isSelected ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                            <Icon className="w-3.5 h-3.5" />
+                          </div>
+                          <span className="text-xs font-bold truncate">{tab.label}</span>
+                        </div>
+                        <span className="text-[10px] font-semibold text-slate-500 block">
+                          {tab.badge}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Monthly Salary Input & Presets (For On-site & Both) */}
