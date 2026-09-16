@@ -246,6 +246,10 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
         city,
         district,
         town_area,
+        uc,
+        monthly_salary,
+        online_hourly_rate,
+        teaching_mode,
         expected_salary,
         about_me,
         moderation_status,
@@ -743,6 +747,9 @@ export async function fetchCurrentTeacherProfile(userIdOrSlug?: string): Promise
         district,
         town_area,
         uc,
+        monthly_salary,
+        online_hourly_rate,
+        teaching_mode,
         expected_salary,
         about_me,
         published,
@@ -792,6 +799,10 @@ export async function fetchCurrentTeacherProfile(userIdOrSlug?: string): Promise
         genderFormatted = gLower === 'female' ? 'Female' : 'Male';
       }
 
+      const mode: 'onsite' | 'online' | 'both' = (teacherRow as any).teaching_mode || 'onsite';
+      const monthlyAmt = mode === 'online' ? undefined : (Number((teacherRow as any).monthly_salary ?? teacherRow.expected_salary) || 35000);
+      const hourlyAmt = mode === 'onsite' ? undefined : (Number((teacherRow as any).online_hourly_rate) || 800);
+
       const draft: TeacherCardDraft = {
         fullName: prof?.full_name || '',
         fatherName: teacherRow.father_name || '',
@@ -801,18 +812,21 @@ export async function fetchCurrentTeacherProfile(userIdOrSlug?: string): Promise
         institution: teacherRow.institution || '',
         additionalQualifications: teacherRow.additional_qualifications || '',
         subjects: subs.length > 0 ? subs : ['General Science', 'Mathematics'],
-        classes: cls || '6 - 10',
+        classes: normalizeClassLevel(cls || '6 - 10'),
         experienceYears: Number(teacherRow.experience_years) || 0,
         previousSchool: teacherRow.previous_school || '',
         teachingSkills: sks,
         availability: teacherRow.availability || 'Morning',
         availableFrom: teacherRow.available_from || undefined,
+        teachingMode: mode,
+        monthlySalary: monthlyAmt,
+        onlineHourlyRate: hourlyAmt,
         town: teacherRow.town_area || 'Malir Town',
         uc: teacherRow.uc || '',
         area: teacherRow.town_area || 'Malir Town',
         district: teacherRow.district || 'Malir',
         city: teacherRow.city || 'Karachi',
-        expectedSalary: Number(teacherRow.expected_salary) || 35000,
+        expectedSalary: Number(teacherRow.expected_salary) || (monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000)),
         aboutMe: teacherRow.about_me || '',
         email: prof?.email || '',
         phone: prof?.phone || '',
@@ -1114,7 +1128,10 @@ export async function publishTeacherCard(draftData: any) {
       availableFrom: draftData.availableFrom || '',
       town: draftData.town || draftData.area || 'Malir Town',
       uc: draftData.uc || '',
-      expectedSalary: Math.max(10000, Number(draftData.expectedSalary) || 35000),
+      teachingMode: mode,
+      monthlySalary: monthlySalary,
+      onlineHourlyRate: onlineHourlyRate,
+      expectedSalary: monthlySalary ?? (onlineHourlyRate ? onlineHourlyRate * 40 : 35000),
       aboutMe: draftData.aboutMe || '',
       email: userEmail,
       phone: userPhone,
