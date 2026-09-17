@@ -20,7 +20,9 @@ import {
   Lock,
   Building,
   Laptop,
-  RefreshCw
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -106,9 +108,28 @@ function FindTeachersContent() {
   const [maxSalary, setMaxSalary] = useState<number>(90000);
   const [maxHourlyRate, setMaxHourlyRate] = useState<number>(3000);
   const [sortBy, setSortBy] = useState<'relevance' | 'salaryAsc' | 'experienceDesc'>('relevance');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const ITEMS_PER_PAGE = 20;
 
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [selectedTeacherForContact, setSelectedTeacherForContact] = useState<TeacherCardData | null>(null);
+
+  // Reset to page 1 whenever any filter changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchTerm,
+    selectedTeachingMode,
+    selectedSubject,
+    selectedClass,
+    selectedTown,
+    selectedUc,
+    selectedAvailability,
+    selectedExperience,
+    maxSalary,
+    maxHourlyRate,
+    sortBy,
+  ]);
 
   // Fetch live published teachers from Supabase
   React.useEffect(() => {
@@ -271,6 +292,34 @@ function FindTeachersContent() {
     maxHourlyRate,
     sortBy,
   ]);
+
+  const totalPages = Math.ceil(filteredTeachers.length / ITEMS_PER_PAGE) || 1;
+
+  const paginatedTeachers = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredTeachers.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredTeachers, currentPage]);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setCurrentPage(newPage);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const getPaginationNumbers = (curr: number, total: number) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    if (curr <= 4) {
+      return [1, 2, 3, 4, 5, '...', total];
+    }
+    if (curr >= total - 3) {
+      return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+    }
+    return [1, '...', curr - 1, curr, curr + 1, '...', total];
+  };
 
   const formatPKR = (amt: number) => {
     return new Intl.NumberFormat('en-PK', {
@@ -494,10 +543,11 @@ function FindTeachersContent() {
             
             {/* Results bar & Sorting header */}
             <div className="bg-white rounded-2xl border border-slate-200/90 shadow-soft p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-xs sm:text-sm text-slate-600">
-                Showing <strong className="text-slate-900 font-bold">{filteredTeachers.length}</strong> verified teachers 
+              <div className="text-xs sm:text-sm text-slate-700 font-semibold flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>Verified Teachers</span>
                 {selectedTeachingMode === 'online' ? (
-                  <span className="font-semibold text-purple-700"> (Online Tutoring)</span>
+                  <span className="font-semibold text-purple-700"> &bull; Online Tutoring</span>
                 ) : (
                   <> in <span className="font-semibold text-blue-700">{selectedTown || 'District Malir'}</span></>
                 )}
@@ -520,25 +570,85 @@ function FindTeachersContent() {
 
             {/* Teachers Card Grid */}
             {filteredTeachers.length > 0 ? (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
-                {filteredTeachers.map((teacher) => {
-                  const isOwn = Boolean(
-                    role === 'teacher' && (
-                      teacher.id === user?.id ||
-                      teacher.slug === profile?.teacher_slug ||
-                      (profile?.full_name && teacher.fullName.toLowerCase().trim() === profile.full_name.toLowerCase().trim())
-                    )
-                  );
-                  return (
-                    <TeacherCard
-                      key={teacher.id}
-                      teacher={teacher}
-                      showMatch
-                      isOwnCard={isOwn}
-                      onContactClick={isOwn ? undefined : (t) => setSelectedTeacherForContact(t)}
-                    />
-                  );
-                })}
+              <div className="space-y-8">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
+                  {paginatedTeachers.map((teacher) => {
+                    const isOwn = Boolean(
+                      role === 'teacher' && (
+                        teacher.id === user?.id ||
+                        teacher.slug === profile?.teacher_slug ||
+                        (profile?.full_name && teacher.fullName.toLowerCase().trim() === profile.full_name.toLowerCase().trim())
+                      )
+                    );
+                    return (
+                      <TeacherCard
+                        key={teacher.id}
+                        teacher={teacher}
+                        showMatch
+                        isOwnCard={isOwn}
+                        onContactClick={isOwn ? undefined : (t) => setSelectedTeacherForContact(t)}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-1.5 sm:gap-2 pt-4 pb-2 border-t border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage === 1}
+                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span className="hidden sm:inline">Previous</span>
+                    </button>
+
+                    <div className="flex items-center gap-1 sm:gap-1.5">
+                      {getPaginationNumbers(currentPage, totalPages).map((page, idx) => {
+                        if (page === '...') {
+                          return (
+                            <span
+                              key={`ellipsis-${idx}`}
+                              className="px-2 py-1 text-slate-400 font-bold text-xs select-none"
+                            >
+                              ...
+                            </span>
+                          );
+                        }
+
+                        const pageNum = page as number;
+                        const isActive = pageNum === currentPage;
+
+                        return (
+                          <button
+                            key={pageNum}
+                            type="button"
+                            onClick={() => handlePageChange(pageNum)}
+                            className={`min-w-[36px] h-9 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-2xs ${
+                              isActive
+                                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs cursor-pointer"
+                    >
+                      <span className="hidden sm:inline">Next</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               /* Empty State */
