@@ -46,7 +46,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { getAdminDashboardData, updateModerationStatus, deleteUserAccount, deleteContactRequest } from '@/services/teacherService';
+import { getAdminDashboardData, updateModerationStatus, deleteUserAccount, deleteContactRequest, parseTeacherMetadata } from '@/services/teacherService';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { getAdminCredentials, updateAdminCredentials, verifyAdminCredentials, AdminCredentials } from '@/lib/adminAuth';
@@ -174,6 +174,7 @@ export default function AdminPanelPage() {
         // 1. Map real teachers from Supabase
         teachers.forEach((t: any) => {
           const prof = Array.isArray(t.profiles) ? t.profiles[0] : t.profiles;
+          const meta = parseTeacherMetadata(t.about_me, t.town_area);
           records.push({
             id: t.id,
             name: prof?.full_name || 'Educator',
@@ -196,7 +197,7 @@ export default function AdminPanelPage() {
             district: t.district,
             area: t.town_area,
             expectedSalary: t.expected_salary,
-            aboutMe: t.about_me,
+            aboutMe: meta.cleanAboutMe || 'Dedicated educator passionate about student success.',
           });
         });
 
@@ -1583,7 +1584,9 @@ export default function AdminPanelPage() {
                   {viewingUser.aboutMe && (
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1">
                       <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">About Me</span>
-                      <p className="text-slate-700 text-[11px] leading-relaxed">{viewingUser.aboutMe}</p>
+                      <p className="text-slate-700 text-[11px] leading-relaxed">
+                        {viewingUser.aboutMe.replace(/<!--TC_META:[\s\S]*?-->/g, '').trim() || 'Dedicated educator passionate about student success.'}
+                      </p>
                     </div>
                   )}
                 </>
