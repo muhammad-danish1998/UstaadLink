@@ -169,6 +169,63 @@ export function getLocalRegisteredTeachers(): TeacherCardData[] {
   }
 }
 
+/**
+ * Safely parses metadata (mode, rates, location) encoded in teacher bio/town_area
+ */
+export function parseTeacherMetadata(aboutMe?: string | null, townArea?: string | null): {
+  cleanAboutMe: string;
+  teachingMode: 'onsite' | 'online' | 'both';
+  monthlySalary?: number;
+  onlineHourlyRate?: number;
+  town?: string;
+  uc?: string;
+} {
+  let cleanAboutMe = aboutMe || '';
+  let teachingMode: 'onsite' | 'online' | 'both' = 'onsite';
+  let monthlySalary: number | undefined;
+  let onlineHourlyRate: number | undefined;
+  let town: string | undefined;
+  let uc: string | undefined;
+
+  if (aboutMe) {
+    const match = aboutMe.match(/<!--TC_META:([\s\S]*?)-->/);
+    if (match && match[1]) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (parsed.mode === 'online' || parsed.mode === 'both' || parsed.mode === 'onsite') {
+          teachingMode = parsed.mode;
+        }
+        if (parsed.monthlySalary) monthlySalary = Number(parsed.monthlySalary);
+        if (parsed.onlineHourlyRate) onlineHourlyRate = Number(parsed.onlineHourlyRate);
+        if (parsed.town) town = parsed.town;
+        if (parsed.uc) uc = parsed.uc;
+      } catch {
+        // ignore parse error
+      }
+      cleanAboutMe = aboutMe.replace(/<!--TC_META:[\s\S]*?-->/g, '').trim();
+    }
+  }
+
+  // Fallback checks for keywords if not explicitly in meta
+  if (teachingMode === 'onsite') {
+    const combined = `${townArea || ''} ${cleanAboutMe}`.toLowerCase();
+    if (combined.includes('onsite + online') || combined.includes('hybrid') || combined.includes('both online and onsite')) {
+      teachingMode = 'both';
+    } else if (combined.includes('online tutoring only') || combined.includes('online only') || (townArea && townArea.toLowerCase().startsWith('online'))) {
+      teachingMode = 'online';
+    }
+  }
+
+  return {
+    cleanAboutMe,
+    teachingMode,
+    monthlySalary,
+    onlineHourlyRate,
+    town,
+    uc,
+  };
+}
+
 export function saveLocalRegisteredTeacher(teacherData: any) {
   if (typeof window === 'undefined') return;
   try {
@@ -322,10 +379,13 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
 
         const subs = teacherSubjectsMap[t.id] || [];
         const cls = teacherClassesMap[t.id] || [];
-        const mode = (t as any).teaching_mode || 'onsite';
-        const monthlyAmt = Number(t.expected_salary) || 35000;
-        const hourlyAmt = (t as any).online_hourly_rate || 800;
+        const meta = parseTeacherMetadata(t.about_me, t.town_area);
+        const mode = meta.teachingMode || (t as any).teaching_mode || 'onsite';
+        const monthlyAmt = meta.monthlySalary ?? (mode === 'online' ? null : Number(t.expected_salary) || 35000);
+        const hourlyAmt = meta.onlineHourlyRate ?? (mode === 'onsite' ? null : (t as any).online_hourly_rate || 800);
         const loc = parseMalirLocation(t.town_area);
+        const town = meta.town || loc.town || 'Malir';
+        const uc = meta.uc || loc.uc || '';
 
         teachersList.push({
           id: teacherId,
@@ -342,12 +402,12 @@ export async function getPublishedTeachers(filters?: TeacherFilterParams): Promi
             area: t.town_area || 'Malir',
             district: t.district || 'Malir',
             city: t.city || 'Karachi',
-            town: loc.town || 'Malir',
-            uc: loc.uc || '',
+            town,
+            uc,
           },
-          expectedSalary: monthlyAmt,
-          monthlySalary: monthlyAmt,
-          onlineHourlyRate: hourlyAmt,
+          expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
+          monthlySalary: monthlyAmt ?? undefined,
+          onlineHourlyRate: hourlyAmt ?? undefined,
           isVerified: true,
         });
       });
@@ -584,10 +644,13 @@ export async function getTeacherBySlug(slug: string) {
       const cls = (data as any).teacher_classes?.map((tc: any) => tc.classes?.name).filter(Boolean).join(', ') || '';
       const sks = (data as any).teacher_skills?.map((tsk: any) => tsk.skills?.name).filter(Boolean) || [];
 
-      const mode = (data as any).teaching_mode || 'onsite';
-      const monthlyAmt = mode === 'online' ? null : Number((data as any).monthly_salary ?? data.expected_salary) || 35000;
-      const hourlyAmt = mode === 'onsite' ? null : Number((data as any).online_hourly_rate) || 800;
+      const meta = parseTeacherMetadata(data.about_me, data.town_area);
+      const mode = meta.teachingMode || (data as any).teaching_mode || 'onsite';
+      const monthlyAmt = meta.monthlySalary ?? (mode === 'online' ? null : Number((data as any).monthly_salary ?? data.expected_salary) || 35000);
+      const hourlyAmt = meta.onlineHourlyRate ?? (mode === 'onsite' ? null : Number((data as any).online_hourly_rate) || 800);
       const loc = parseMalirLocation(data.town_area);
+      const town = meta.town || loc.town || 'Malir';
+      const uc = meta.uc || loc.uc || '';
       return {
           id: data.id,
           slug: data.slug || cleanSlug,
@@ -608,13 +671,13 @@ export async function getTeacherBySlug(slug: string) {
             area: data.town_area || 'Malir',
             district: data.district || 'Malir',
             city: data.city || 'Karachi',
-            town: loc.town || 'Malir',
-            uc: loc.uc || '',
+            town,
+            uc,
           },
           expectedSalary: monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000),
           monthlySalary: monthlyAmt,
           onlineHourlyRate: hourlyAmt,
-          aboutMe: data.about_me || 'Dedicated educator passionate about student success.',
+          aboutMe: meta.cleanAboutMe || data.about_me || 'Dedicated educator passionate about student success.',
           isVerified: true,
         };
     }
@@ -802,9 +865,13 @@ export async function fetchCurrentTeacherProfile(userIdOrSlug?: string): Promise
         genderFormatted = gLower === 'female' ? 'Female' : 'Male';
       }
 
-      const mode: 'onsite' | 'online' | 'both' = (teacherRow as any).teaching_mode || 'onsite';
-      const monthlyAmt = mode === 'online' ? undefined : (Number((teacherRow as any).monthly_salary ?? teacherRow.expected_salary) || 35000);
-      const hourlyAmt = mode === 'onsite' ? undefined : (Number((teacherRow as any).online_hourly_rate) || 800);
+      const meta = parseTeacherMetadata(teacherRow.about_me, teacherRow.town_area);
+      const mode: 'onsite' | 'online' | 'both' = meta.teachingMode || (teacherRow as any).teaching_mode || 'onsite';
+      const monthlyAmt = meta.monthlySalary ?? (mode === 'online' ? undefined : (Number((teacherRow as any).monthly_salary ?? teacherRow.expected_salary) || 35000));
+      const hourlyAmt = meta.onlineHourlyRate ?? (mode === 'onsite' ? undefined : (Number((teacherRow as any).online_hourly_rate) || 800));
+      const loc = parseMalirLocation(teacherRow.town_area);
+      const town = meta.town || loc.town || 'Malir';
+      const uc = meta.uc || loc.uc || '';
 
       const draft: TeacherCardDraft = {
         fullName: prof?.full_name || '',
@@ -824,13 +891,13 @@ export async function fetchCurrentTeacherProfile(userIdOrSlug?: string): Promise
         teachingMode: mode,
         monthlySalary: monthlyAmt,
         onlineHourlyRate: hourlyAmt,
-        town: parseMalirLocation(teacherRow.town_area).town || 'Malir',
-        uc: parseMalirLocation(teacherRow.town_area).uc || '',
+        town,
+        uc,
         area: teacherRow.town_area || 'Malir Town',
         district: teacherRow.district || 'Malir',
         city: teacherRow.city || 'Karachi',
         expectedSalary: Number(teacherRow.expected_salary) || (monthlyAmt ?? (hourlyAmt ? hourlyAmt * 40 : 35000)),
-        aboutMe: teacherRow.about_me || '',
+        aboutMe: meta.cleanAboutMe || teacherRow.about_me || '',
         email: prof?.email || '',
         phone: prof?.phone || '',
         isPublished: teacherRow.published !== false,
@@ -994,6 +1061,16 @@ export async function publishTeacherCard(draftData: any) {
     const monthlySalary = mode === 'online' ? null : Math.max(10000, Number(draftData.monthlySalary || draftData.expectedSalary) || 35000);
     const onlineHourlyRate = mode === 'onsite' ? null : Math.max(100, Number(draftData.onlineHourlyRate) || 800);
 
+    const metaObj = {
+      mode,
+      monthlySalary: mode === 'online' ? null : (draftData.monthlySalary || draftData.expectedSalary || null),
+      onlineHourlyRate: mode === 'onsite' ? null : (draftData.onlineHourlyRate || null),
+      town: draftData.town || null,
+      uc: draftData.uc || null,
+    };
+    const rawBio = (draftData.aboutMe || '').replace(/<!--TC_META:[\s\S]*?-->/g, '').trim();
+    const bioWithMeta = `${rawBio}\n<!--TC_META:${JSON.stringify(metaObj)}-->`.trim();
+
     const teacherPayload = {
       user_id: userId,
       slug: targetSlug,
@@ -1010,9 +1087,9 @@ export async function publishTeacherCard(draftData: any) {
       available_from: draftData.availableFrom ? new Date(draftData.availableFrom).toISOString().split('T')[0] : null,
       city: 'Karachi',
       district: MALIR_DISTRICT,
-      town_area: draftData.uc ? `${draftData.uc}, ${draftData.town || draftData.area || 'Malir'}` : (draftData.town || draftData.area || 'Malir'),
+      town_area: mode === 'online' && !draftData.uc ? 'Online Tutoring' : (draftData.uc ? `${draftData.uc}, ${draftData.town || draftData.area || 'Malir'}` : (draftData.town || draftData.area || 'Malir')),
       expected_salary: monthlySalary ?? (onlineHourlyRate ? onlineHourlyRate * 40 : 35000),
-      about_me: draftData.aboutMe || '',
+      about_me: bioWithMeta,
       published: draftData.isPublished !== false,
       search_indexable: Boolean(draftData.isSearchIndexable),
       moderation_status: 'active',
