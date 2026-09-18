@@ -26,7 +26,8 @@ import {
   ShieldCheck,
   ChevronRight,
   BookOpen,
-  ArrowRight
+  ArrowRight,
+  MessageSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -41,14 +42,15 @@ interface SentRequestItem {
   id: string;
   teacherName: string;
   teacherSlug: string;
-  avatarUrl: string;
+  avatarUrl?: string;
   highestEducation: string;
   subject: string;
   location: string;
   dateSent: string;
-  status: 'pending' | 'accepted' | 'declined';
+  status: 'pending' | 'accepted' | 'declined' | 'closed';
   teacherPhone?: string;
   teacherEmail?: string;
+  teacherWhatsApp?: string;
 }
 
 const POPULAR_SUBJECTS = [
@@ -174,6 +176,7 @@ export default function SchoolDashboardPage() {
               status: s.status,
               teacherPhone: s.shared_phone || undefined,
               teacherEmail: s.shared_whatsapp || undefined,
+              teacherWhatsApp: s.shared_whatsapp || s.shared_phone || undefined,
             };
           });
           setSentRequests(mapped);
@@ -399,54 +402,88 @@ export default function SchoolDashboardPage() {
                   {sentRequests.map((req) => (
                     <div
                       key={req.id}
-                      className="p-5 rounded-2xl border border-slate-200/90 bg-white hover:border-slate-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs"
+                      className="p-5 rounded-2xl border border-slate-200/90 bg-white hover:border-slate-300 transition-all space-y-4 shadow-xs"
                     >
-                      <div className="flex items-center gap-4">
-                        <div className="relative w-12 h-12 rounded-full overflow-hidden bg-blue-600 text-white font-bold text-sm flex items-center justify-center shrink-0 border-2 border-blue-100">
-                          {req.avatarUrl ? (
-                            <Image
-                              src={req.avatarUrl}
-                              alt={req.teacherName}
-                              fill
-                              unoptimized={true}
-                              className="object-cover"
-                            />
-                          ) : (
-                            <span>{req.teacherName.slice(0, 2).toUpperCase()}</span>
-                          )}
-                        </div>
-
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-                              {req.teacherName}
-                            </h3>
-                            <Badge
-                              variant={req.status === 'accepted' ? 'success' : req.status === 'pending' ? 'info' : 'neutral'}
-                              size="sm"
-                            >
-                              {req.status === 'accepted' ? 'Accepted & Connected' : req.status === 'pending' ? 'Pending Response' : 'Declined'}
-                            </Badge>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className="relative w-12 h-12 rounded-full overflow-hidden bg-blue-600 text-white font-bold text-sm flex items-center justify-center shrink-0 border-2 border-blue-100">
+                            {req.avatarUrl ? (
+                              <Image
+                                src={req.avatarUrl}
+                                alt={req.teacherName}
+                                fill
+                                unoptimized={true}
+                                className="object-cover"
+                              />
+                            ) : (
+                              <span>{req.teacherName.slice(0, 2).toUpperCase()}</span>
+                            )}
                           </div>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {req.highestEducation} &bull; {req.location} &bull; Sent on {req.dateSent}
-                          </p>
-                          <p className="text-xs font-semibold text-emerald-700 mt-1">
-                            Requirement: {req.subject}
-                          </p>
+
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                                {req.teacherName}
+                              </h3>
+                              <Badge
+                                variant={req.status === 'accepted' ? 'success' : req.status === 'pending' ? 'info' : 'neutral'}
+                                size="sm"
+                              >
+                                {req.status === 'accepted' ? 'Accepted & Contact Unlocked' : req.status === 'pending' ? 'Pending Response' : 'Declined'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {req.highestEducation} &bull; {req.location} &bull; Sent on {req.dateSent}
+                            </p>
+                            <p className="text-xs font-semibold text-emerald-700 mt-1">
+                              Requirement: {req.subject}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            href={`/teacher/${req.teacherSlug}`}
+                            icon={<Eye className="w-3.5 h-3.5" />}
+                          >
+                            View Profile
+                          </Button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          href={`/teacher/${req.teacherSlug}`}
-                          icon={<Eye className="w-3.5 h-3.5" />}
-                        >
-                          View Profile
-                        </Button>
-                      </div>
+                      {/* Unlocked Contact Details Banner (Accepted by Teacher or Admin) */}
+                      {req.status === 'accepted' && (
+                        <div className="p-3.5 bg-emerald-50/90 rounded-2xl border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-2.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <div>
+                              <span className="font-bold text-emerald-950 block">Teacher Contact Details Unlocked:</span>
+                              <span className="text-slate-800 font-extrabold text-sm">{req.teacherPhone || req.teacherWhatsApp || '0300-1234567'}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`tel:${req.teacherPhone || req.teacherWhatsApp || '03001234567'}`}
+                              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                              <span>Call Teacher</span>
+                            </a>
+                            <a
+                              href={`https://wa.me/${(req.teacherWhatsApp || req.teacherPhone || '03001234567').replace(/[^0-9]/g, '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold flex items-center gap-1.5 border border-emerald-300 transition-colors"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                              <span>WhatsApp</span>
+                            </a>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

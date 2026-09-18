@@ -46,7 +46,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { getAdminDashboardData, updateModerationStatus, deleteUserAccount, deleteContactRequest, parseTeacherMetadata } from '@/services/teacherService';
+import { getAdminDashboardData, updateModerationStatus, deleteUserAccount, deleteContactRequest, adminRespondToContactRequest, parseTeacherMetadata } from '@/services/teacherService';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { getAdminCredentials, updateAdminCredentials, verifyAdminCredentials, AdminCredentials } from '@/lib/adminAuth';
@@ -134,6 +134,7 @@ export default function AdminPanelPage() {
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [deletingRequest, setDeletingRequest] = useState<ContactRequestRecord | null>(null);
   const [isDeletingRequest, setIsDeletingRequest] = useState<boolean>(false);
+  const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
 
   // Admin inline login state when not authenticated
   const [loginIdentifier, setLoginIdentifier] = useState('');
@@ -380,6 +381,104 @@ export default function AdminPanelPage() {
     } finally {
       setIsDeletingRequest(false);
       setDeletingRequest(null);
+    }
+  };
+
+  const handleAdminApproveRequest = async (req: ContactRequestRecord) => {
+    setApprovingRequestId(req.id);
+    try {
+      // Find teacher user record to retrieve valid contact phone
+      const matchedTeacher = users.find(
+        (u) => u.role === 'Teacher' && (u.id === req.teacherId || u.slug === req.teacherSlug)
+      );
+      const targetPhone = req.teacherPhone || matchedTeacher?.phone || '0300-1234567';
+      const targetWhatsapp = req.sharedWhatsApp || targetPhone;
+
+      const res = await adminRespondToContactRequest(req.id, 'accepted', {
+        teacherPhone: targetPhone,
+        teacherWhatsapp: targetWhatsapp,
+        note: 'Approved by Administrator (Contact Details Unlocked)',
+      });
+
+      if (res.success) {
+        const phoneToShow = res.sharePhone || targetPhone;
+        const waToShow = res.shareWhatsapp || targetWhatsapp;
+
+        setRequests((prev) =>
+          prev.map((r) =>
+            r.id === req.id
+              ? {
+                  ...r,
+                  status: 'accepted',
+                  sharedPhone: phoneToShow,
+                  sharedWhatsApp: waToShow,
+                  teacherResponseNote: 'Approved by Administrator (Contact Details Unlocked)',
+                  respondedAt: new Date().toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
+                }
+              : r
+          )
+        );
+
+        if (selectedRequest?.id === req.id) {
+          setSelectedRequest({
+            ...selectedRequest,
+            status: 'accepted',
+            sharedPhone: phoneToShow,
+            sharedWhatsApp: waToShow,
+            teacherResponseNote: 'Approved by Administrator (Contact Details Unlocked)',
+            respondedAt: new Date().toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
+          });
+        }
+        showNotice(`Contact request approved! ${req.teacherName}'s contact details are now unlocked for ${req.schoolName}.`);
+      } else {
+        showNotice(`Failed to approve request: ${res.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Admin approve error:', err);
+      showNotice('An error occurred while approving the request.');
+    } finally {
+      setApprovingRequestId(null);
+    }
+  };
+
+  const handleAdminDeclineRequest = async (req: ContactRequestRecord) => {
+    setApprovingRequestId(req.id);
+    try {
+      const res = await adminRespondToContactRequest(req.id, 'declined', {
+        note: 'Declined by Administrator',
+      });
+
+      if (res.success) {
+        setRequests((prev) =>
+          prev.map((r) =>
+            r.id === req.id
+              ? {
+                  ...r,
+                  status: 'declined',
+                  teacherResponseNote: 'Declined by Administrator',
+                  respondedAt: new Date().toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
+                }
+              : r
+          )
+        );
+
+        if (selectedRequest?.id === req.id) {
+          setSelectedRequest({
+            ...selectedRequest,
+            status: 'declined',
+            teacherResponseNote: 'Declined by Administrator',
+            respondedAt: new Date().toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
+          });
+        }
+        showNotice(`Contact request from ${req.schoolName} has been declined.`);
+      } else {
+        showNotice(`Failed to decline request: ${res.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Admin decline error:', err);
+      showNotice('An error occurred while declining the request.');
+    } finally {
+      setApprovingRequestId(null);
     }
   };
 
@@ -1016,7 +1115,7 @@ export default function AdminPanelPage() {
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
+                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto flex-wrap">
                             <Badge
                               variant={
                                 req.status === 'accepted' ? 'success' : 
@@ -1024,9 +1123,34 @@ export default function AdminPanelPage() {
                               }
                               size="sm"
                             >
-                              {req.status === 'accepted' ? 'Accepted by Teacher' :
+                              {req.status === 'accepted' ? 'Accepted & Contact Unlocked' :
                                req.status === 'declined' ? 'Declined' : 'Pending Response'}
                             </Badge>
+
+                            {/* Dual Acceptance: Admin can Approve or Decline directly */}
+                            {req.status === 'pending' && (
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={() => handleAdminApproveRequest(req)}
+                                  disabled={approvingRequestId === req.id}
+                                  icon={<CheckCircle2 className="w-3.5 h-3.5" />}
+                                  className="text-xs px-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                >
+                                  {approvingRequestId === req.id ? 'Unlocking...' : 'Approve & Unlock'}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleAdminDeclineRequest(req)}
+                                  disabled={approvingRequestId === req.id}
+                                  className="text-xs px-2.5 text-slate-600 hover:text-red-600 hover:border-red-200"
+                                >
+                                  Decline
+                                </Button>
+                              </div>
+                            )}
 
                             <Button
                               variant="outline"
@@ -1035,7 +1159,7 @@ export default function AdminPanelPage() {
                               icon={<Eye className="w-3.5 h-3.5" />}
                               className="text-xs px-3"
                             >
-                              Inspect Details
+                              Inspect
                             </Button>
 
                             <Button
@@ -1043,31 +1167,72 @@ export default function AdminPanelPage() {
                               size="sm"
                               onClick={() => setDeletingRequest(req)}
                               icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />}
-                              className="text-xs px-2.5 text-red-600 hover:bg-red-50 hover:text-red-700"
+                              className="text-xs px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
                               title="Delete Contact Request"
                             >
-                              Delete
+                              <span className="sr-only">Delete</span>
                             </Button>
                           </div>
                         </div>
 
-                        {/* If Accepted: Show Teacher's Shared WhatsApp & Contact info */}
-                        {req.status === 'accepted' && (req.sharedWhatsApp || req.sharedPhone) && (
-                          <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-200 text-xs flex items-center justify-between gap-3 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                              <span className="text-emerald-900 font-medium">
-                                Teacher accepted request and shared direct contact:
-                              </span>
-                              <span className="font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-md">
-                                {req.sharedWhatsApp || req.sharedPhone}
-                              </span>
+                        {/* If Accepted: Show Full Direct Contact info for both Teacher & School */}
+                        {req.status === 'accepted' && (
+                          <div className="p-4 bg-emerald-50/90 rounded-2xl border border-emerald-200 text-xs space-y-2.5">
+                            <div className="flex items-center justify-between gap-3 flex-wrap border-b border-emerald-200/70 pb-2">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span className="text-emerald-950 font-bold">
+                                  Contact Details Unlocked &amp; Shared
+                                </span>
+                              </div>
+                              {req.teacherResponseNote && (
+                                <span className="text-emerald-800 text-[11px] font-medium bg-emerald-100/80 px-2.5 py-0.5 rounded-full">
+                                  {req.teacherResponseNote}
+                                </span>
+                              )}
                             </div>
-                            {req.teacherResponseNote && (
-                              <span className="text-emerald-700 italic text-[11px]">
-                                Note: &ldquo;{req.teacherResponseNote}&rdquo;
-                              </span>
-                            )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                              {/* Teacher Contact details */}
+                              <div className="bg-white p-2.5 rounded-xl border border-emerald-200/80 space-y-1">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                                  Teacher Direct Contact
+                                </span>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-bold text-slate-900 text-xs truncate">
+                                    {req.teacherName}
+                                  </span>
+                                  <a
+                                    href={`tel:${req.sharedPhone || req.teacherPhone || '03001234567'}`}
+                                    className="font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border border-emerald-200 shrink-0"
+                                  >
+                                    <Phone className="w-3 h-3" />
+                                    <span>{req.sharedPhone || req.teacherPhone || '0300-1234567'}</span>
+                                  </a>
+                                </div>
+                              </div>
+
+                              {/* School Contact details */}
+                              <div className="bg-white p-2.5 rounded-xl border border-emerald-200/80 space-y-1">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
+                                  School Official Contact
+                                </span>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-bold text-slate-900 text-xs truncate">
+                                    {req.contactPerson} ({req.schoolName})
+                                  </span>
+                                  {req.schoolPhone && (
+                                    <a
+                                      href={`tel:${req.schoolPhone}`}
+                                      className="font-bold text-blue-700 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border border-blue-200 shrink-0"
+                                    >
+                                      <Phone className="w-3 h-3" />
+                                      <span>{req.schoolPhone}</span>
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         )}
 
@@ -1777,40 +1942,103 @@ export default function AdminPanelPage() {
               )}
             </div>
 
-            {/* Teacher Response Status */}
+            {/* Teacher & Admin Response Status */}
             {selectedRequest.status === 'accepted' ? (
-              <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span className="font-bold text-emerald-900">
-                    Teacher Accepted Contact Request {selectedRequest.respondedAt ? `on ${selectedRequest.respondedAt}` : ''}
-                  </span>
-                </div>
-                {(selectedRequest.sharedWhatsApp || selectedRequest.sharedPhone) && (
-                  <div className="bg-white p-3 rounded-xl border border-emerald-200 flex items-center justify-between">
-                    <span className="text-slate-600 font-medium">Shared Contact Number:</span>
-                    <span className="font-bold text-emerald-700 text-sm">
-                      {selectedRequest.sharedWhatsApp || selectedRequest.sharedPhone}
+              <div className="p-5 bg-emerald-50/90 rounded-2xl border border-emerald-200 space-y-3 text-xs">
+                <div className="flex items-center justify-between border-b border-emerald-200/80 pb-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span className="font-bold text-emerald-950">
+                      Contact Request Accepted {selectedRequest.respondedAt ? `(${selectedRequest.respondedAt})` : ''}
                     </span>
                   </div>
-                )}
-                {selectedRequest.teacherResponseNote && (
-                  <p className="text-emerald-800 text-xs italic">
-                    Teacher&apos;s Note: &ldquo;{selectedRequest.teacherResponseNote}&rdquo;
-                  </p>
-                )}
+                  {selectedRequest.teacherResponseNote && (
+                    <span className="text-emerald-800 text-[11px] font-medium bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                      {selectedRequest.teacherResponseNote}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-white p-3 rounded-xl border border-emerald-200 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                      Teacher Contact Unlocked
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-sm">
+                        {selectedRequest.sharedWhatsApp || selectedRequest.sharedPhone || selectedRequest.teacherPhone || '0300-1234567'}
+                      </span>
+                      <a
+                        href={`tel:${selectedRequest.sharedPhone || selectedRequest.teacherPhone || '03001234567'}`}
+                        className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 hover:bg-emerald-100 flex items-center gap-1"
+                      >
+                        <Phone className="w-3 h-3" />
+                        <span>Call Teacher</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-emerald-200 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
+                      School Official Contact
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-sm">
+                        {selectedRequest.schoolPhone || '021-34567890'}
+                      </span>
+                      {selectedRequest.schoolPhone && (
+                        <a
+                          href={`tel:${selectedRequest.schoolPhone}`}
+                          className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 hover:bg-blue-100 flex items-center gap-1"
+                        >
+                          <Phone className="w-3 h-3" />
+                          <span>Call School</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : selectedRequest.status === 'declined' ? (
               <div className="p-4 bg-slate-100 rounded-2xl border border-slate-200 text-xs text-slate-600">
                 <span className="font-bold text-slate-800 block">Request Declined</span>
-                <span>The teacher chose to decline this recruitment contact opportunity.</span>
+                <span>The request was declined. No contact information was unlocked.</span>
               </div>
             ) : (
-              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  Pending teacher review. The teacher has received notification on their dashboard.
-                </span>
+              <div className="p-4 bg-amber-50/90 rounded-2xl border border-amber-200 text-xs space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-slate-900 block">
+                      Admin Concierge &amp; Matching Action
+                    </span>
+                    <p className="text-slate-600 mt-0.5 leading-relaxed">
+                      You can facilitate this connection by approving on behalf of the teacher. Approving will automatically unlock <strong>{selectedRequest.teacherName}&apos;s</strong> phone ({selectedRequest.teacherPhone || '0300-1234567'}) for <strong>{selectedRequest.schoolName}</strong> and notify both parties.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-amber-200 flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleAdminDeclineRequest(selectedRequest)}
+                    disabled={approvingRequestId === selectedRequest.id}
+                    className="text-xs text-slate-700 hover:text-red-600"
+                  >
+                    Decline Request
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleAdminApproveRequest(selectedRequest)}
+                    disabled={approvingRequestId === selectedRequest.id}
+                    icon={<CheckCircle2 className="w-3.5 h-3.5" />}
+                    className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                  >
+                    {approvingRequestId === selectedRequest.id ? 'Approving...' : 'Approve & Unlock Contact Details'}
+                  </Button>
+                </div>
               </div>
             )}
 

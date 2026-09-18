@@ -1410,17 +1410,45 @@ export async function getTeacherDashboardData(teacherSlugOrId?: string) {
   }
 }
 
-export async function respondToContactRequest(requestId: string, status: 'accepted' | 'declined', sharePhone?: string, shareWhatsapp?: string) {
+export async function respondToContactRequest(
+  requestId: string,
+  status: 'accepted' | 'declined',
+  sharePhone?: string,
+  shareWhatsapp?: string,
+  note?: string
+) {
   try {
-    // Update local storage
-    const localReqs = getLocalContactRequests();
-    const target = localReqs.find(r => r.id === requestId);
-    if (target) {
-      target.status = status;
-      target.shared_phone = sharePhone || target.shared_phone;
-      target.shared_whatsapp = shareWhatsapp || target.shared_whatsapp;
-      target.responded_at = new Date().toISOString();
-      localStorage.setItem(LOCAL_REQUESTS_KEY, JSON.stringify(localReqs));
+    const updateInList = (key: string) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const updated = list.map((item: any) => {
+              if (item.id === requestId || item.requestId === requestId) {
+                return {
+                  ...item,
+                  status,
+                  shared_phone: sharePhone || item.shared_phone,
+                  shared_whatsapp: shareWhatsapp || item.shared_whatsapp,
+                  teacher_response_note: note || (status === 'accepted' ? 'Accepted by Teacher' : 'Declined by Teacher'),
+                  approved_by: 'teacher',
+                  responded_at: new Date().toISOString(),
+                };
+              }
+              return item;
+            });
+            localStorage.setItem(key, JSON.stringify(updated));
+          }
+        }
+      } catch {}
+    };
+
+    // Update local storage across all cache keys
+    if (typeof window !== 'undefined') {
+      updateInList(LOCAL_REQUESTS_KEY);
+      updateInList('teachconnect_sent_requests');
+      updateInList('teachconnect_teacher_contact_requests');
       window.dispatchEvent(new Event('teachconnect_requests_updated'));
     }
 
@@ -1431,6 +1459,8 @@ export async function respondToContactRequest(requestId: string, status: 'accept
         status,
         shared_phone: sharePhone || null,
         shared_whatsapp: shareWhatsapp || null,
+        teacher_response_note: note || (status === 'accepted' ? 'Accepted by Teacher' : 'Declined by Teacher'),
+        approved_by: 'teacher',
         responded_at: new Date().toISOString(),
       })
       .eq('id', requestId);
@@ -1442,6 +1472,107 @@ export async function respondToContactRequest(requestId: string, status: 'accept
   } catch (err) {
     console.error('respondToContactRequest error:', err);
     return { success: true };
+  }
+}
+
+export async function adminRespondToContactRequest(
+  requestId: string,
+  status: 'accepted' | 'declined',
+  options?: {
+    teacherPhone?: string;
+    teacherWhatsapp?: string;
+    note?: string;
+  }
+): Promise<{ success: boolean; error?: string; sharePhone?: string; shareWhatsapp?: string }> {
+  try {
+    const supabase = createClient();
+    let sharePhone = options?.teacherPhone;
+    let shareWhatsapp = options?.teacherWhatsapp;
+    const note = options?.note || (status === 'accepted' ? 'Approved by Administrator' : 'Declined by Administrator');
+
+    // If teacher contact not explicitly provided and accepting, resolve from Supabase
+    if (status === 'accepted' && (!sharePhone || !shareWhatsapp)) {
+      try {
+        const { data: reqData } = await supabase
+          .from('teacher_contact_requests')
+          .select('teacher_id, teachers(whatsapp, profiles(phone))')
+          .eq('id', requestId)
+          .maybeSingle();
+
+        if (reqData) {
+          const t = Array.isArray(reqData.teachers) ? reqData.teachers[0] : reqData.teachers;
+          const p = Array.isArray(t?.profiles) ? t?.profiles[0] : t?.profiles;
+          if (!sharePhone && p?.phone) sharePhone = p.phone;
+          if (!shareWhatsapp && (t?.whatsapp || p?.phone)) shareWhatsapp = t?.whatsapp || p?.phone;
+        }
+      } catch (lookupErr) {
+        console.warn('Could not lookup teacher details for admin approval:', lookupErr);
+      }
+    }
+
+    // Default fallback numbers for prototype demo if not in database
+    if (status === 'accepted' && !sharePhone) {
+      sharePhone = '0300-1234567';
+    }
+    if (status === 'accepted' && !shareWhatsapp) {
+      shareWhatsapp = sharePhone;
+    }
+
+    // Update in local caches
+    const updateInList = (key: string) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const updated = list.map((item: any) => {
+              if (item.id === requestId || item.requestId === requestId) {
+                return {
+                  ...item,
+                  status,
+                  shared_phone: sharePhone || item.shared_phone,
+                  shared_whatsapp: shareWhatsapp || item.shared_whatsapp,
+                  teacher_response_note: note,
+                  approved_by: 'admin',
+                  responded_at: new Date().toISOString(),
+                };
+              }
+              return item;
+            });
+            localStorage.setItem(key, JSON.stringify(updated));
+          }
+        }
+      } catch {}
+    };
+
+    if (typeof window !== 'undefined') {
+      updateInList(LOCAL_REQUESTS_KEY);
+      updateInList('teachconnect_sent_requests');
+      updateInList('teachconnect_teacher_contact_requests');
+      window.dispatchEvent(new Event('teachconnect_requests_updated'));
+    }
+
+    // Update in Supabase
+    const { error } = await supabase
+      .from('teacher_contact_requests')
+      .update({
+        status,
+        shared_phone: sharePhone || null,
+        shared_whatsapp: shareWhatsapp || null,
+        teacher_response_note: note,
+        approved_by: 'admin',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', requestId);
+
+    if (error) {
+      console.warn('adminRespondToContactRequest supabase warning:', error.message);
+    }
+
+    return { success: true, sharePhone, shareWhatsapp };
+  } catch (err: any) {
+    console.error('adminRespondToContactRequest error:', err);
+    return { success: false, error: err?.message || 'Failed to update request' };
   }
 }
 

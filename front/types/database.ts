@@ -104,6 +104,7 @@ export interface ContactRequest {
   shared_phone?: string | null;
   shared_whatsapp?: string | null;
   teacher_response_note?: string | null;
+  approved_by?: 'teacher' | 'admin' | 'system' | null;
   responded_at?: string | null;
   created_at: string;
   updated_at: string;
