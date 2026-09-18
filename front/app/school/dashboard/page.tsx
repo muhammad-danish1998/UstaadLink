@@ -166,10 +166,15 @@ export default function SchoolDashboardPage() {
               subject = rawSubj.replace(/\s*\(Contact:[^\)]+\)/i, '').trim();
             }
 
-            const rawPhone = s.shared_phone || s.teacherPhone || prof?.phone || t?.whatsapp;
+            const normStatus = String(s.status || '').toLowerCase().trim();
+            const isAccepted = normStatus === 'accepted';
+            const isDeclined = normStatus === 'declined';
+            const resolvedStatus = isAccepted ? 'accepted' : (isDeclined ? 'declined' : 'pending');
+
+            const rawPhone = s.shared_phone || s.teacherPhone || s.phone || prof?.phone || t?.whatsapp;
             const rawWa = s.shared_whatsapp || s.teacherWhatsApp || t?.whatsapp || rawPhone;
-            const finalPhone = s.status === 'accepted' ? (rawPhone || '0300-1234567') : undefined;
-            const finalWa = s.status === 'accepted' ? (rawWa || finalPhone) : undefined;
+            const finalPhone = isAccepted ? (rawPhone || '0300-1234567') : undefined;
+            const finalWa = isAccepted ? (rawWa || finalPhone || '0300-1234567') : undefined;
 
             return {
               id: s.id,
@@ -180,11 +185,11 @@ export default function SchoolDashboardPage() {
               subject,
               location,
               dateSent: new Date(s.created_at).toLocaleDateString('en-PK', { month: 'short', day: 'numeric', year: 'numeric' }),
-              status: s.status,
+              status: resolvedStatus,
               teacherPhone: finalPhone,
               teacherEmail: s.shared_whatsapp || undefined,
               teacherWhatsApp: finalWa,
-              teacherResponseNote: s.teacher_response_note || 'Approved & Verified Lead',
+              teacherResponseNote: s.teacher_response_note || (isAccepted ? 'Approved by Administrator (Contact Details Unlocked)' : undefined),
               respondedAt: s.responded_at ? new Date(s.responded_at).toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }) : undefined,
             };
           });
@@ -208,8 +213,10 @@ export default function SchoolDashboardPage() {
       if (!authLoading) loadSchoolData();
     };
     window.addEventListener('teachconnect_requests_updated', handleReqUpdate);
+    window.addEventListener('storage', handleReqUpdate);
     return () => {
       window.removeEventListener('teachconnect_requests_updated', handleReqUpdate);
+      window.removeEventListener('storage', handleReqUpdate);
     };
   }, [user, profile, authLoading]);
 

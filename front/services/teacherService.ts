@@ -1252,34 +1252,55 @@ export function getLocalContactRequests(): any[] {
     const sentRaw = localStorage.getItem('teachconnect_sent_requests');
     const inqRaw = localStorage.getItem('teachconnect_teacher_contact_requests');
 
-    const combined: any[] = raw ? JSON.parse(raw) : [];
+    const combinedMap = new Map<string, any>();
+
+    const mergeItem = (item: any) => {
+      if (!item || (!item.id && !item.requestId)) return;
+      const idKey = String(item.id || item.requestId);
+      const existing = combinedMap.get(idKey);
+      if (!existing) {
+        combinedMap.set(idKey, { ...item });
+      } else {
+        const isAccepted = item.status === 'accepted' || existing.status === 'accepted';
+        const isDeclined = !isAccepted && (item.status === 'declined' || existing.status === 'declined');
+        const resolvedStatus = isAccepted ? 'accepted' : (isDeclined ? 'declined' : (item.status || existing.status || 'pending'));
+
+        combinedMap.set(idKey, {
+          ...existing,
+          ...item,
+          status: resolvedStatus,
+          shared_phone: item.shared_phone || item.teacherPhone || existing.shared_phone || existing.teacherPhone,
+          shared_whatsapp: item.shared_whatsapp || item.teacherWhatsApp || existing.shared_whatsapp || existing.teacherWhatsApp,
+          teacherPhone: item.teacherPhone || item.shared_phone || existing.teacherPhone || existing.shared_phone,
+          teacherWhatsApp: item.teacherWhatsApp || item.shared_whatsapp || existing.teacherWhatsApp || existing.shared_whatsapp,
+          teacher_response_note: item.teacher_response_note || existing.teacher_response_note,
+          responded_at: item.responded_at || existing.responded_at,
+          approved_by: item.approved_by || existing.approved_by,
+        });
+      }
+    };
+
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) parsed.forEach(mergeItem);
+      } catch {}
+    }
     if (sentRaw) {
       try {
         const parsed = JSON.parse(sentRaw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((item: any) => {
-            if (item && item.id && !combined.some((c) => c.id === item.id)) {
-              combined.push(item);
-            }
-          });
-        }
+        if (Array.isArray(parsed)) parsed.forEach(mergeItem);
       } catch {}
     }
     if (inqRaw) {
       try {
         const parsed = JSON.parse(inqRaw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((item: any) => {
-            if (item && item.id && !combined.some((c) => c.id === item.id)) {
-              combined.push(item);
-            }
-          });
-        }
+        if (Array.isArray(parsed)) parsed.forEach(mergeItem);
       } catch {}
     }
 
     const deletedIds = getDeletedRequestIds();
-    return combined.filter(r => !deletedIds.has(r.id) && !deletedIds.has(r.requestId));
+    return Array.from(combinedMap.values()).filter(r => !deletedIds.has(r.id) && !deletedIds.has(r.requestId));
   } catch {
     return [];
   }
@@ -1291,6 +1312,7 @@ export function saveLocalContactRequest(req: any) {
     const list = getLocalContactRequests();
     const updated = [req, ...list.filter(item => item.id !== req.id)];
     localStorage.setItem(LOCAL_REQUESTS_KEY, JSON.stringify(updated));
+    localStorage.setItem('teachconnect_sent_requests', JSON.stringify(updated));
     window.dispatchEvent(new Event('teachconnect_requests_updated'));
   } catch (e) {
     console.error('saveLocalContactRequest error:', e);
@@ -1391,8 +1413,26 @@ export async function getTeacherDashboardData(teacherSlugOrId?: string) {
             (teacherSlugOrId && (lr.teacher_id === teacherSlugOrId || lr.teacherSlug === teacherSlugOrId));
 
           if (matchesTeacher) {
-            const alreadyInList = combinedRequests.some((r) => r.id === lr.id);
-            if (!alreadyInList) {
+            const existingIdx = combinedRequests.findIndex((r: any) => r.id === lr.id || (r.requestId && r.requestId === lr.id));
+            if (existingIdx >= 0) {
+              const existing: any = combinedRequests[existingIdx];
+              const isAccepted = lr.status === 'accepted' || existing.status === 'accepted';
+              const isDeclined = !isAccepted && (lr.status === 'declined' || existing.status === 'declined');
+
+              combinedRequests[existingIdx] = {
+                ...existing,
+                ...lr,
+                status: isAccepted ? 'accepted' : (isDeclined ? 'declined' : (lr.status || existing.status || 'pending')),
+                shared_phone: lr.shared_phone || lr.teacherPhone || existing.shared_phone || existing.teacherPhone,
+                shared_whatsapp: lr.shared_whatsapp || lr.teacherWhatsApp || existing.shared_whatsapp || existing.teacherWhatsApp,
+                teacherPhone: lr.teacherPhone || lr.shared_phone || existing.teacherPhone || existing.shared_phone,
+                teacherWhatsApp: lr.teacherWhatsApp || lr.shared_whatsapp || existing.teacherWhatsApp || existing.shared_whatsapp,
+                teacher_response_note: lr.teacher_response_note || existing.teacher_response_note,
+                responded_at: lr.responded_at || existing.responded_at,
+                approved_by: lr.approved_by || existing.approved_by,
+                schools: existing.schools || lr.schools,
+              };
+            } else {
               combinedRequests.unshift(lr);
             }
           }
@@ -2192,18 +2232,36 @@ export async function getSchoolDashboardData(options?: {
     const combinedSent = (sentRequests ? [...sentRequests] : []).filter(r => !deletedIds.has(r.id));
     const localReqs = getLocalContactRequests();
     
-    // Filter local requests to only match THIS school
+    // Filter local requests to only match THIS school and merge with Supabase results
     localReqs.forEach((lr) => {
       if (!deletedIds.has(lr.id)) {
         const isMatch =
           (!schoolId && !schoolName && !options?.userEmail) ||
-          (schoolId && lr.school_id === schoolId) ||
+          (schoolId && (lr.school_id === schoolId || lr.schoolId === schoolId)) ||
           (schoolName && lr.school_name?.toLowerCase().trim() === schoolName.toLowerCase().trim()) ||
           (options?.userEmail && lr.schoolEmail?.toLowerCase().trim() === options.userEmail.toLowerCase().trim());
 
         if (isMatch) {
-          const alreadyInList = combinedSent.some((r) => r.id === lr.id);
-          if (!alreadyInList) {
+          const existingIdx = combinedSent.findIndex((r: any) => r.id === lr.id || (r.requestId && r.requestId === lr.id));
+          if (existingIdx >= 0) {
+            const existing: any = combinedSent[existingIdx];
+            const isAccepted = lr.status === 'accepted' || existing.status === 'accepted';
+            const isDeclined = !isAccepted && (lr.status === 'declined' || existing.status === 'declined');
+
+            combinedSent[existingIdx] = {
+              ...existing,
+              ...lr,
+              status: isAccepted ? 'accepted' : (isDeclined ? 'declined' : (lr.status || existing.status || 'pending')),
+              shared_phone: lr.shared_phone || lr.teacherPhone || existing.shared_phone || existing.teacherPhone,
+              shared_whatsapp: lr.shared_whatsapp || lr.teacherWhatsApp || existing.shared_whatsapp || existing.teacherWhatsApp,
+              teacherPhone: lr.teacherPhone || lr.shared_phone || existing.teacherPhone || existing.shared_phone,
+              teacherWhatsApp: lr.teacherWhatsApp || lr.shared_whatsapp || existing.teacherWhatsApp || existing.shared_whatsapp,
+              teacher_response_note: lr.teacher_response_note || existing.teacher_response_note,
+              responded_at: lr.responded_at || existing.responded_at,
+              approved_by: lr.approved_by || existing.approved_by,
+              teachers: existing.teachers || lr.teachers,
+            };
+          } else {
             combinedSent.unshift(lr);
           }
         }
@@ -2418,8 +2476,27 @@ export async function getAdminDashboardData() {
     const localReqs = getLocalContactRequests();
     localReqs.forEach((lr) => {
       if (!deletedIds.has(lr.id)) {
-        const alreadyInList = combinedRequests.some((r) => r.id === lr.id);
-        if (!alreadyInList) {
+        const existingIdx = combinedRequests.findIndex((r: any) => r.id === lr.id || (r.requestId && r.requestId === lr.id));
+        if (existingIdx >= 0) {
+          const existing = combinedRequests[existingIdx];
+          const isAccepted = lr.status === 'accepted' || existing.status === 'accepted';
+          const isDeclined = !isAccepted && (lr.status === 'declined' || existing.status === 'declined');
+
+          combinedRequests[existingIdx] = {
+            ...existing,
+            ...lr,
+            status: isAccepted ? 'accepted' : (isDeclined ? 'declined' : (lr.status || existing.status || 'pending')),
+            shared_phone: lr.shared_phone || lr.teacherPhone || existing.shared_phone || existing.teacherPhone,
+            shared_whatsapp: lr.shared_whatsapp || lr.teacherWhatsApp || existing.shared_whatsapp || existing.teacherWhatsApp,
+            teacherPhone: lr.teacherPhone || lr.shared_phone || existing.teacherPhone || existing.shared_phone,
+            teacherWhatsApp: lr.teacherWhatsApp || lr.shared_whatsapp || existing.teacherWhatsApp || existing.shared_whatsapp,
+            teacher_response_note: lr.teacher_response_note || existing.teacher_response_note,
+            responded_at: lr.responded_at || existing.responded_at,
+            approved_by: lr.approved_by || existing.approved_by,
+            teachers: existing.teachers || lr.teachers,
+            schools: existing.schools || lr.schools,
+          };
+        } else {
           combinedRequests.unshift(lr);
         }
       }
