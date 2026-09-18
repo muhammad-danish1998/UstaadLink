@@ -2274,7 +2274,13 @@ export async function getSchoolDashboardData(options?: {
           (options?.userEmail && lr.schoolEmail?.toLowerCase().trim() === options.userEmail.toLowerCase().trim());
 
         if (isMatch) {
-          const existingIdx = combinedSent.findIndex((r: any) => r.id === lr.id || (r.requestId && r.requestId === lr.id));
+          const lrTeacherId = lr.teacher_id || lr.teacherId || lr.teacherSlug;
+          const existingIdx = combinedSent.findIndex((r: any) => {
+            if (r.id === lr.id || (r.requestId && r.requestId === lr.id)) return true;
+            const rTeacherId = r.teacher_id || r.teacherId || r.teacherSlug || r.teachers?.id || r.teachers?.slug;
+            return Boolean(lrTeacherId && rTeacherId && lrTeacherId === rTeacherId);
+          });
+
           if (existingIdx >= 0) {
             const existing: any = combinedSent[existingIdx];
             const isAccepted = lr.status === 'accepted' || existing.status === 'accepted';
@@ -2283,6 +2289,7 @@ export async function getSchoolDashboardData(options?: {
             combinedSent[existingIdx] = {
               ...existing,
               ...lr,
+              id: existing.id && !String(existing.id).startsWith('req-') ? existing.id : (lr.id || existing.id),
               status: isAccepted ? 'accepted' : (isDeclined ? 'declined' : (lr.status || existing.status || 'pending')),
               shared_phone: lr.shared_phone || lr.teacherPhone || existing.shared_phone || existing.teacherPhone,
               shared_whatsapp: lr.shared_whatsapp || lr.teacherWhatsApp || existing.shared_whatsapp || existing.teacherWhatsApp,
@@ -2300,8 +2307,41 @@ export async function getSchoolDashboardData(options?: {
       }
     });
 
+    // Final deduplication: Ensure strictly one consolidated request card per teacher for this school
+    const dedupedMap = new Map<string, any>();
+    for (const reqItem of combinedSent) {
+      const req: any = reqItem;
+      const t = Array.isArray(req.teachers) ? req.teachers[0] : req.teachers;
+      const tKey = req.teacher_id || req.teacherSlug || t?.id || t?.slug || req.id;
+      const dedupKey = String(tKey).toLowerCase().trim();
+
+      const existing: any = dedupedMap.get(dedupKey);
+      if (!existing) {
+        dedupedMap.set(dedupKey, req);
+      } else {
+        const isAccepted = req.status === 'accepted' || existing.status === 'accepted';
+        const isDeclined = !isAccepted && (req.status === 'declined' || existing.status === 'declined');
+        const resolvedStatus = isAccepted ? 'accepted' : (isDeclined ? 'declined' : (req.status || existing.status || 'pending'));
+
+        dedupedMap.set(dedupKey, {
+          ...existing,
+          ...req,
+          id: existing.id && !String(existing.id).startsWith('req-') ? existing.id : (req.id || existing.id),
+          status: resolvedStatus,
+          shared_phone: req.shared_phone || req.teacherPhone || existing.shared_phone || existing.teacherPhone,
+          shared_whatsapp: req.shared_whatsapp || req.teacherWhatsApp || existing.shared_whatsapp || existing.teacherWhatsApp,
+          teacherPhone: req.teacherPhone || req.shared_phone || existing.teacherPhone || existing.shared_phone,
+          teacherWhatsApp: req.teacherWhatsApp || req.shared_whatsapp || existing.teacherWhatsApp || existing.shared_whatsapp,
+          teacher_response_note: req.teacher_response_note || existing.teacher_response_note,
+          responded_at: req.responded_at || existing.responded_at,
+          approved_by: req.approved_by || existing.approved_by,
+          teachers: existing.teachers || req.teachers,
+        });
+      }
+    }
+
     return {
-      sentRequests: combinedSent,
+      sentRequests: Array.from(dedupedMap.values()),
       shortlists: shortlists || [],
     };
   } catch (err) {

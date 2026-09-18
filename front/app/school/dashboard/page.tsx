@@ -193,7 +193,19 @@ export default function SchoolDashboardPage() {
               respondedAt: s.responded_at ? new Date(s.responded_at).toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }) : undefined,
             };
           });
-          setSentRequests(mapped);
+
+          // Strictly deduplicate by teacher identity so duplicate draft submissions never appear
+          const seenTeachers = new Set<string>();
+          const dedupedList: SentRequestItem[] = [];
+          for (const item of mapped) {
+            const tKey = (item.teacherSlug && item.teacherSlug !== 'preview') ? item.teacherSlug.toLowerCase().trim() : (item.teacherName?.toLowerCase().trim() || item.id);
+            if (!seenTeachers.has(tKey)) {
+              seenTeachers.add(tKey);
+              dedupedList.push(item);
+            }
+          }
+
+          setSentRequests(dedupedList);
         } else {
           setSentRequests([]);
         }
