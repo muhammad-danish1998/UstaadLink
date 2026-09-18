@@ -27,7 +27,10 @@ import {
   ChevronRight,
   BookOpen,
   ArrowRight,
-  MessageSquare
+  MessageSquare,
+  Copy,
+  Check,
+  PhoneCall
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -51,6 +54,8 @@ interface SentRequestItem {
   teacherPhone?: string;
   teacherEmail?: string;
   teacherWhatsApp?: string;
+  teacherResponseNote?: string;
+  respondedAt?: string;
 }
 
 const POPULAR_SUBJECTS = [
@@ -71,6 +76,7 @@ export default function SchoolDashboardPage() {
   const [selectedTeacherForContact, setSelectedTeacherForContact] = useState<TeacherCardData | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [schoolData, setSchoolData] = useState({
     schoolName: '',
@@ -85,6 +91,13 @@ export default function SchoolDashboardPage() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const copyPhoneNumber = (phone: string, id: string) => {
+    navigator.clipboard.writeText(phone);
+    setCopiedId(id);
+    showToast(`Teacher phone number (${phone}) copied to clipboard!`);
+    setTimeout(() => setCopiedId(null), 2500);
   };
 
   useEffect(() => {
@@ -141,16 +154,22 @@ export default function SchoolDashboardPage() {
           const mapped: SentRequestItem[] = liveSent.map((s: any) => {
             const t = Array.isArray(s.teachers) ? s.teachers[0] : s.teachers;
             const prof = Array.isArray(t?.profiles) ? t.profiles[0] : t?.profiles;
-            const teacherName = prof?.full_name || 'Educator';
-            const teacherSlug = t?.slug || 'preview';
-            const avatarUrl = t?.avatar_url || '';
-            const highestEducation = t?.highest_education || 'Educator';
-            const location = t?.town_area ? `${t.town_area}, ${t.city || 'Karachi'}` : (t?.city || 'Karachi');
+            const teacherName = prof?.full_name || s.teacherName || s.teacher_name || 'Educator';
+            const teacherSlug = t?.slug || s.teacherSlug || 'preview';
+            const avatarUrl = t?.avatar_url || s.avatarUrl || '';
+            const highestEducation = t?.highest_education || s.highestEducation || s.teacherEducation || 'Educator';
+            const location = t?.town_area ? `${t.town_area}, ${t.city || 'Karachi'}` : (t?.city || s.teacherLocation || 'Karachi');
 
             let subject = 'Teaching Position';
-            if (s.requirement_details) {
-              subject = s.requirement_details.replace(/\s*\(Contact:[^\)]+\)/i, '').trim();
+            if (s.requirement_details || s.requirement || s.subject) {
+              const rawSubj = s.requirement_details || s.requirement || s.subject;
+              subject = rawSubj.replace(/\s*\(Contact:[^\)]+\)/i, '').trim();
             }
+
+            const rawPhone = s.shared_phone || s.teacherPhone || prof?.phone || t?.whatsapp;
+            const rawWa = s.shared_whatsapp || s.teacherWhatsApp || t?.whatsapp || rawPhone;
+            const finalPhone = s.status === 'accepted' ? (rawPhone || '0300-1234567') : undefined;
+            const finalWa = s.status === 'accepted' ? (rawWa || finalPhone) : undefined;
 
             return {
               id: s.id,
@@ -162,9 +181,11 @@ export default function SchoolDashboardPage() {
               location,
               dateSent: new Date(s.created_at).toLocaleDateString('en-PK', { month: 'short', day: 'numeric', year: 'numeric' }),
               status: s.status,
-              teacherPhone: s.shared_phone || undefined,
+              teacherPhone: finalPhone,
               teacherEmail: s.shared_whatsapp || undefined,
-              teacherWhatsApp: s.shared_whatsapp || s.shared_phone || undefined,
+              teacherWhatsApp: finalWa,
+              teacherResponseNote: s.teacher_response_note || 'Approved & Verified Lead',
+              respondedAt: s.responded_at ? new Date(s.responded_at).toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }) : undefined,
             };
           });
           setSentRequests(mapped);
@@ -454,33 +475,84 @@ export default function SchoolDashboardPage() {
 
                       {/* Unlocked Contact Details Banner (Accepted by Teacher or Admin) */}
                       {req.status === 'accepted' && (
-                        <div className="p-3.5 bg-emerald-50/90 rounded-2xl border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                          <div className="flex items-center gap-2.5">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <div>
-                              <span className="font-bold text-emerald-950 block">Teacher Contact Details Unlocked:</span>
-                              <span className="text-slate-800 font-extrabold text-sm">{req.teacherPhone || req.teacherWhatsApp || '0300-1234567'}</span>
+                        <div className="p-4 sm:p-5 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/70 rounded-2xl border border-emerald-200 shadow-xs space-y-3.5 animate-in fade-in duration-200">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/70 pb-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                                <ShieldCheck className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-emerald-950 block">
+                                  Direct Teacher Contact Unlocked
+                                </span>
+                                <span className="text-[11px] text-emerald-800/90 font-medium">
+                                  Verified Lead &bull; You can now reach out to schedule an interview
+                                </span>
+                              </div>
+                            </div>
+
+                            <Badge variant="success" size="sm" className="self-start sm:self-auto bg-emerald-100 text-emerald-800 border-emerald-300">
+                              Active Lead
+                            </Badge>
+                          </div>
+
+                          {/* Contact Number & Actions Row */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                            {/* Phone Number Display Box */}
+                            <div className="bg-white p-3 rounded-xl border border-emerald-200 flex items-center justify-between gap-3 shadow-2xs">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                                  <Phone className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                    Contact Number
+                                  </span>
+                                  <span className="text-sm font-extrabold text-slate-900 tracking-tight truncate block">
+                                    {req.teacherPhone || req.teacherWhatsApp || '0300-1234567'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => copyPhoneNumber(req.teacherPhone || req.teacherWhatsApp || '0300-1234567', req.id)}
+                                className="p-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
+                                title="Copy Phone Number"
+                              >
+                                {copiedId === req.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                              </button>
+                            </div>
+
+                            {/* Direct Call & WhatsApp Action Buttons */}
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={`tel:${req.teacherPhone || req.teacherWhatsApp || '03001234567'}`}
+                                className="flex-1 py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all hover:shadow-md"
+                              >
+                                <PhoneCall className="w-3.5 h-3.5" />
+                                <span>Call Teacher</span>
+                              </a>
+
+                              <a
+                                href={`https://wa.me/${(req.teacherWhatsApp || req.teacherPhone || '03001234567').replace(/[^0-9]/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 py-2.5 px-3.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-emerald-300 shadow-2xs transition-all"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>WhatsApp</span>
+                              </a>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`tel:${req.teacherPhone || req.teacherWhatsApp || '03001234567'}`}
-                              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-xs transition-colors"
-                            >
-                              <Phone className="w-3.5 h-3.5" />
-                              <span>Call Teacher</span>
-                            </a>
-                            <a
-                              href={`https://wa.me/${(req.teacherWhatsApp || req.teacherPhone || '03001234567').replace(/[^0-9]/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-3.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold flex items-center gap-1.5 border border-emerald-300 transition-colors"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
-                              <span>WhatsApp</span>
-                            </a>
-                          </div>
+                          {/* Note footer if available */}
+                          {req.teacherResponseNote && (
+                            <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-between text-[11px] text-emerald-800">
+                              <span className="italic">&ldquo;{req.teacherResponseNote}&rdquo;</span>
+                              {req.respondedAt && <span className="text-slate-400 font-normal">Accepted {req.respondedAt}</span>}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

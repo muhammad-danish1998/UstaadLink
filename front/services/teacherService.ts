@@ -1486,24 +1486,46 @@ export async function adminRespondToContactRequest(
 ): Promise<{ success: boolean; error?: string; sharePhone?: string; shareWhatsapp?: string }> {
   try {
     const supabase = createClient();
-    let sharePhone = options?.teacherPhone;
-    let shareWhatsapp = options?.teacherWhatsapp;
-    const note = options?.note || (status === 'accepted' ? 'Approved by Administrator' : 'Declined by Administrator');
+    let sharePhone = options?.teacherPhone?.trim();
+    let shareWhatsapp = options?.teacherWhatsapp?.trim();
+    const note = options?.note || (status === 'accepted' ? 'Approved by Administrator (Contact Details Unlocked)' : 'Declined by Administrator');
 
-    // If teacher contact not explicitly provided and accepting, resolve from Supabase
+    // If teacher contact not explicitly provided and accepting, resolve step-by-step
     if (status === 'accepted' && (!sharePhone || !shareWhatsapp)) {
       try {
         const { data: reqData } = await supabase
           .from('teacher_contact_requests')
-          .select('teacher_id, teachers(whatsapp, profiles(phone))')
+          .select('id, teacher_id')
           .eq('id', requestId)
           .maybeSingle();
 
-        if (reqData) {
-          const t = Array.isArray(reqData.teachers) ? reqData.teachers[0] : reqData.teachers;
-          const p = Array.isArray(t?.profiles) ? t?.profiles[0] : t?.profiles;
-          if (!sharePhone && p?.phone) sharePhone = p.phone;
-          if (!shareWhatsapp && (t?.whatsapp || p?.phone)) shareWhatsapp = t?.whatsapp || p?.phone;
+        if (reqData?.teacher_id) {
+          const tId = reqData.teacher_id;
+          const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tId);
+
+          let teacherQuery = supabase.from('teachers').select('id, user_id, whatsapp, slug');
+          if (isUUID) {
+            teacherQuery = teacherQuery.eq('id', tId);
+          } else {
+            teacherQuery = teacherQuery.eq('slug', tId);
+          }
+
+          const { data: teacherRow } = await teacherQuery.maybeSingle();
+          if (teacherRow) {
+            if (!shareWhatsapp && teacherRow.whatsapp) shareWhatsapp = teacherRow.whatsapp;
+
+            if (teacherRow.user_id) {
+              const { data: profRow } = await supabase
+                .from('profiles')
+                .select('phone')
+                .eq('id', teacherRow.user_id)
+                .maybeSingle();
+              if (profRow?.phone) {
+                if (!sharePhone) sharePhone = profRow.phone;
+                if (!shareWhatsapp) shareWhatsapp = profRow.phone;
+              }
+            }
+          }
         }
       } catch (lookupErr) {
         console.warn('Could not lookup teacher details for admin approval:', lookupErr);
@@ -1511,11 +1533,9 @@ export async function adminRespondToContactRequest(
     }
 
     // Default fallback numbers for prototype demo if not in database
-    if (status === 'accepted' && !sharePhone) {
-      sharePhone = '0300-1234567';
-    }
-    if (status === 'accepted' && !shareWhatsapp) {
-      shareWhatsapp = sharePhone;
+    if (status === 'accepted') {
+      if (!sharePhone) sharePhone = '0300-1234567';
+      if (!shareWhatsapp) shareWhatsapp = sharePhone;
     }
 
     // Update in local caches
@@ -1532,6 +1552,8 @@ export async function adminRespondToContactRequest(
                   status,
                   shared_phone: sharePhone || item.shared_phone,
                   shared_whatsapp: shareWhatsapp || item.shared_whatsapp,
+                  teacherPhone: sharePhone || item.teacherPhone,
+                  teacherWhatsApp: shareWhatsapp || item.teacherWhatsApp,
                   teacher_response_note: note,
                   approved_by: 'admin',
                   responded_at: new Date().toISOString(),
