@@ -1933,10 +1933,175 @@ export async function registerSchoolProfile(schoolData: {
   }
 }
 
-export async function getSchoolDashboardData() {
+export async function getCurrentSchoolProfile(userId?: string, userEmail?: string) {
   try {
     const supabase = createClient();
-    const { data: sentRequests } = await supabase
+    let effectiveUserId = userId;
+    let effectiveEmail = userEmail?.toLowerCase().trim();
+
+    // 1. Get from active Supabase session if not passed
+    if (!effectiveUserId) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        effectiveUserId = session.user.id;
+        if (!effectiveEmail) effectiveEmail = session.user.email?.toLowerCase().trim();
+      }
+    }
+
+    // 2. Check localStorage demo user if still not resolved
+    if (!effectiveUserId && typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('teachconnect_demo_user');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.role === 'school') {
+            effectiveUserId = parsed.id;
+            if (!effectiveEmail) effectiveEmail = parsed.email?.toLowerCase().trim();
+          }
+        }
+      } catch {}
+    }
+
+    let schoolRecord: any = null;
+
+    // 3. Primary lookup by user_id
+    if (effectiveUserId) {
+      const { data: schoolByUid } = await supabase
+        .from('schools')
+        .select(`
+          id,
+          user_id,
+          school_name,
+          contact_person,
+          school_type,
+          custom_school_type,
+          area,
+          uc,
+          city,
+          district,
+          profiles (email, phone, full_name)
+        `)
+        .eq('user_id', effectiveUserId)
+        .maybeSingle();
+
+      if (schoolByUid) {
+        schoolRecord = schoolByUid;
+      }
+    }
+
+    // 4. Secondary lookup by profile email if not found by user_id
+    if (!schoolRecord && effectiveEmail) {
+      const { data: profileWithSchool } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          email,
+          phone,
+          full_name,
+          schools (
+            id,
+            user_id,
+            school_name,
+            contact_person,
+            school_type,
+            custom_school_type,
+            area,
+            uc,
+            city,
+            district
+          )
+        `)
+        .ilike('email', effectiveEmail)
+        .maybeSingle();
+
+      if (profileWithSchool?.schools) {
+        const sch = Array.isArray(profileWithSchool.schools) ? profileWithSchool.schools[0] : profileWithSchool.schools;
+        if (sch) {
+          schoolRecord = {
+            ...sch,
+            profiles: {
+              email: profileWithSchool.email,
+              phone: profileWithSchool.phone,
+              full_name: profileWithSchool.full_name,
+            }
+          };
+        }
+      }
+    }
+
+    // 5. Fallback: check stored demo user
+    if (!schoolRecord && typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('teachconnect_demo_user');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.role === 'school') {
+            schoolRecord = {
+              id: parsed.id || 'demo-school',
+              user_id: parsed.id || 'demo-school',
+              school_name: parsed.full_name || parsed.schoolName || 'Registered School',
+              contact_person: parsed.contactPerson || parsed.full_name || 'Principal / Administrator',
+              school_type: parsed.schoolType || 'Private',
+              area: parsed.area || parsed.town || 'Malir',
+              uc: parsed.uc || null,
+              city: parsed.city || 'Karachi',
+              district: parsed.district || 'Malir',
+              profiles: {
+                email: parsed.email || '',
+                phone: parsed.phone || '',
+                full_name: parsed.full_name || '',
+              }
+            };
+          }
+        }
+      } catch {}
+    }
+
+    return schoolRecord;
+  } catch (err) {
+    console.error('getCurrentSchoolProfile error:', err);
+    return null;
+  }
+}
+
+export async function getSchoolDashboardData(options?: {
+  schoolId?: string;
+  userId?: string;
+  userEmail?: string;
+  schoolName?: string;
+}) {
+  try {
+    const supabase = createClient();
+    let schoolId = options?.schoolId;
+    let schoolName = options?.schoolName;
+
+    // If schoolId not provided, attempt to resolve via auth session
+    if (!schoolId && !options?.userId) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: sch } = await supabase
+          .from('schools')
+          .select('id, school_name')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+        if (sch) {
+          schoolId = sch.id;
+          if (!schoolName) schoolName = sch.school_name;
+        }
+      }
+    } else if (!schoolId && options?.userId) {
+      const { data: sch } = await supabase
+        .from('schools')
+        .select('id, school_name')
+        .eq('user_id', options.userId)
+        .maybeSingle();
+      if (sch) {
+        schoolId = sch.id;
+        if (!schoolName) schoolName = sch.school_name;
+      }
+    }
+
+    let requestQuery = supabase
       .from('teacher_contact_requests')
       .select(`
         id,
@@ -1968,10 +2133,19 @@ export async function getSchoolDashboardData() {
       `)
       .order('created_at', { ascending: false });
 
-    const { data: shortlists } = await supabase
+    if (schoolId) {
+      requestQuery = requestQuery.eq('school_id', schoolId);
+    } else if (schoolName) {
+      requestQuery = requestQuery.ilike('school_name', schoolName.trim());
+    }
+
+    const { data: sentRequests } = await requestQuery;
+
+    let shortlistQuery = supabase
       .from('school_shortlists')
       .select(`
         id,
+        school_id,
         created_at,
         teachers (
           id,
@@ -1986,14 +2160,30 @@ export async function getSchoolDashboardData() {
         )
       `);
 
+    if (schoolId) {
+      shortlistQuery = shortlistQuery.eq('school_id', schoolId);
+    }
+
+    const { data: shortlists } = await shortlistQuery;
+
     const deletedIds = getDeletedRequestIds();
     const combinedSent = (sentRequests ? [...sentRequests] : []).filter(r => !deletedIds.has(r.id));
     const localReqs = getLocalContactRequests();
+    
+    // Filter local requests to only match THIS school
     localReqs.forEach((lr) => {
       if (!deletedIds.has(lr.id)) {
-        const alreadyInList = combinedSent.some((r) => r.id === lr.id);
-        if (!alreadyInList) {
-          combinedSent.unshift(lr);
+        const isMatch =
+          (!schoolId && !schoolName && !options?.userEmail) ||
+          (schoolId && lr.school_id === schoolId) ||
+          (schoolName && lr.school_name?.toLowerCase().trim() === schoolName.toLowerCase().trim()) ||
+          (options?.userEmail && lr.schoolEmail?.toLowerCase().trim() === options.userEmail.toLowerCase().trim());
+
+        if (isMatch) {
+          const alreadyInList = combinedSent.some((r) => r.id === lr.id);
+          if (!alreadyInList) {
+            combinedSent.unshift(lr);
+          }
         }
       }
     });
@@ -2004,7 +2194,7 @@ export async function getSchoolDashboardData() {
     };
   } catch (err) {
     console.error('getSchoolDashboardData error:', err);
-    return { sentRequests: getLocalContactRequests(), shortlists: [] };
+    return { sentRequests: [], shortlists: [] };
   }
 }
 

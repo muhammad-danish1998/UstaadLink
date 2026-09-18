@@ -33,7 +33,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { TeacherCard, TeacherCardData } from '@/components/teacher/TeacherCard';
 import { ContactRequestModal } from '@/components/contact/ContactRequestModal';
-import { getSchoolDashboardData, registerSchoolProfile } from '@/services/teacherService';
+import { getSchoolDashboardData, registerSchoolProfile, getCurrentSchoolProfile } from '@/services/teacherService';
 import { createClient } from '@/lib/supabase/client';
 import { getShortlistedTeachers, toggleShortlist } from '@/lib/analyticsTracker';
 import { useAuth } from '@/hooks/useAuth';
@@ -64,7 +64,7 @@ const POPULAR_SUBJECTS = [
 ];
 
 export default function SchoolDashboardPage() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, loading: authLoading, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'requests' | 'shortlist' | 'settings'>('overview');
   const [sentRequests, setSentRequests] = useState<SentRequestItem[]>([]);
   const [shortlist, setShortlist] = useState<TeacherCardData[]>([]);
@@ -73,13 +73,13 @@ export default function SchoolDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const [schoolData, setSchoolData] = useState({
-    schoolName: 'City Grammar School',
-    contactPerson: 'Mrs. Farhana (Principal)',
-    email: 'admin@citygrammar.edu.pk',
-    phone: '03001234567',
-    area: 'Gulshan-e-Iqbal',
+    schoolName: '',
+    contactPerson: '',
+    email: '',
+    phone: '',
+    area: '',
     city: 'Karachi',
-    schoolType: 'Private School',
+    schoolType: 'Private',
   });
 
   const showToast = (msg: string) => {
@@ -92,63 +92,51 @@ export default function SchoolDashboardPage() {
     const localShortlist = getShortlistedTeachers();
     setShortlist(localShortlist);
 
-    if (typeof window !== 'undefined') {
-      const stored = sessionStorage.getItem('temp_school_profile') || localStorage.getItem('temp_school_profile');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setSchoolData((prev) => ({
-            ...prev,
-            schoolName: parsed.schoolName || prev.schoolName,
-            contactPerson: parsed.contactPerson || prev.contactPerson,
-            email: parsed.email || prev.email,
-            phone: parsed.phone || prev.phone,
-            area: parsed.area || prev.area,
-            city: parsed.city || prev.city,
-            schoolType: parsed.schoolType || prev.schoolType,
-          }));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
-
     async function loadSchoolData() {
       setIsLoading(true);
       try {
-        const supabase = createClient();
-        
-        // Fetch latest school profile from Supabase
-        const { data: dbSchools } = await supabase
-          .from('schools')
-          .select(`
-            id,
-            school_name,
-            contact_person,
-            school_type,
-            area,
-            city,
-            profiles (email, phone)
-          `)
-          .order('created_at', { ascending: false })
-          .limit(1);
+        // Fetch current school specifically matching the logged in user
+        const schoolRecord = await getCurrentSchoolProfile(user?.id, profile?.email);
 
-        if (dbSchools && dbSchools.length > 0) {
-          const s = dbSchools[0];
-          const prof = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
-          setSchoolData((prev) => ({
-            ...prev,
-            schoolName: s.school_name || prev.schoolName,
-            contactPerson: s.contact_person || prev.contactPerson,
-            email: prof?.email || prev.email,
-            phone: prof?.phone || prev.phone,
-            area: s.area || prev.area,
-            city: s.city || prev.city,
-            schoolType: s.school_type || prev.schoolType,
-          }));
+        let resolvedSchoolId: string | undefined = undefined;
+        let resolvedSchoolName: string | undefined = undefined;
+        let resolvedSchoolEmail: string | undefined = profile?.email;
+
+        if (schoolRecord) {
+          resolvedSchoolId = schoolRecord.id;
+          resolvedSchoolName = schoolRecord.school_name;
+          const prof = Array.isArray(schoolRecord.profiles) ? schoolRecord.profiles[0] : schoolRecord.profiles;
+          if (prof?.email) resolvedSchoolEmail = prof.email;
+
+          setSchoolData({
+            schoolName: schoolRecord.school_name || profile?.full_name || 'My School',
+            contactPerson: schoolRecord.contact_person || profile?.full_name || 'Administrator',
+            email: prof?.email || profile?.email || '',
+            phone: prof?.phone || profile?.phone || '',
+            area: schoolRecord.area || (schoolRecord.uc ? `${schoolRecord.uc}, ${schoolRecord.area}` : 'Karachi'),
+            city: schoolRecord.city || 'Karachi',
+            schoolType: schoolRecord.school_type || 'Private',
+          });
+        } else if (profile || user) {
+          resolvedSchoolName = profile?.full_name;
+          setSchoolData({
+            schoolName: profile?.full_name || 'Registered School',
+            contactPerson: profile?.full_name || 'Principal / Administrator',
+            email: profile?.email || user?.email || '',
+            phone: profile?.phone || '',
+            area: 'Malir',
+            city: 'Karachi',
+            schoolType: 'Private',
+          });
         }
 
-        const { sentRequests: liveSent } = await getSchoolDashboardData();
+        const { sentRequests: liveSent } = await getSchoolDashboardData({
+          schoolId: resolvedSchoolId,
+          userId: user?.id,
+          userEmail: resolvedSchoolEmail,
+          schoolName: resolvedSchoolName,
+        });
+
         if (liveSent && liveSent.length > 0) {
           const mapped: SentRequestItem[] = liveSent.map((s: any) => {
             const t = Array.isArray(s.teachers) ? s.teachers[0] : s.teachers;
@@ -190,8 +178,19 @@ export default function SchoolDashboardPage() {
         setIsLoading(false);
       }
     }
-    loadSchoolData();
-  }, []);
+
+    if (!authLoading) {
+      loadSchoolData();
+    }
+
+    const handleReqUpdate = () => {
+      if (!authLoading) loadSchoolData();
+    };
+    window.addEventListener('teachconnect_requests_updated', handleReqUpdate);
+    return () => {
+      window.removeEventListener('teachconnect_requests_updated', handleReqUpdate);
+    };
+  }, [user, profile, authLoading]);
 
   const handleRemoveFromShortlist = (teacherId: string) => {
     toggleShortlist({ id: teacherId } as any);
