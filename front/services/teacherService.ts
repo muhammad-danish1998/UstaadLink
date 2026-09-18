@@ -1500,8 +1500,8 @@ export async function respondToContactRequest(
         shared_phone: sharePhone || null,
         shared_whatsapp: shareWhatsapp || null,
         teacher_response_note: note || (status === 'accepted' ? 'Accepted by Teacher' : 'Declined by Teacher'),
-        approved_by: 'teacher',
         responded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .eq('id', requestId);
 
@@ -1622,8 +1622,8 @@ export async function adminRespondToContactRequest(
         shared_phone: sharePhone || null,
         shared_whatsapp: shareWhatsapp || null,
         teacher_response_note: note,
-        approved_by: 'admin',
         responded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .eq('id', requestId);
 
