@@ -2376,7 +2376,19 @@ export async function getAdminDashboardData() {
         profiles (full_name, email, phone)
       `).order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').eq('role', 'teacher').order('created_at', { ascending: false }),
-      supabase.from('schools').select('*').order('created_at', { ascending: false }),
+      supabase.from('schools').select(`
+        id,
+        user_id,
+        school_name,
+        contact_person,
+        school_type,
+        area,
+        city,
+        district,
+        moderation_status,
+        created_at,
+        profiles (full_name, email, phone)
+      `).order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').eq('role', 'school').order('created_at', { ascending: false }),
       supabase.from('teacher_contact_requests').select('*').order('created_at', { ascending: false }),
       supabase.from('reports').select('*'),
@@ -2388,6 +2400,12 @@ export async function getAdminDashboardData() {
 
     // Deduplicate schools by name / id (keeping the most recent record)
     const rawSchools = schoolsRes.data || [];
+    const rawSchoolProfiles = schoolProfilesRes.data || [];
+    const profilesMap = new Map<string, any>();
+    rawSchoolProfiles.forEach((p: any) => {
+      if (p.id) profilesMap.set(p.id, p);
+    });
+
     const uniqueSchools: any[] = [];
     const seenSchoolNames = new Set<string>();
     const seenSchoolIds = new Set<string>();
@@ -2395,15 +2413,23 @@ export async function getAdminDashboardData() {
     for (const s of rawSchools) {
       const nameKey = (s.school_name || '').toLowerCase().trim();
       const idKey = s.id || s.user_id;
+      const matchedProfile = s.profiles || (s.user_id ? profilesMap.get(s.user_id) : (s.id ? profilesMap.get(s.id) : null));
+
       if (!seenSchoolNames.has(nameKey) && !seenSchoolIds.has(idKey)) {
         seenSchoolNames.add(nameKey);
         if (idKey) seenSchoolIds.add(idKey);
-        uniqueSchools.push(s);
+        uniqueSchools.push({
+          ...s,
+          profiles: matchedProfile || {
+            full_name: s.school_name,
+            email: (s as any).email || `${(s.school_name || 'school').toLowerCase().replace(/[^a-z0-9]/g, '')}@teachconnect.pk`,
+            phone: (s as any).phone || '021-34567890',
+          }
+        });
       }
     }
 
-    // Merge registered school profiles from profiles table
-    const rawSchoolProfiles = schoolProfilesRes.data || [];
+    // Merge registered school profiles from profiles table if missing from schools table
     for (const sp of rawSchoolProfiles) {
       const nameKey = (sp.full_name || '').toLowerCase().trim();
       const idKey = sp.id;
@@ -2415,7 +2441,7 @@ export async function getAdminDashboardData() {
           user_id: sp.id,
           school_name: sp.full_name,
           contact_person: `${sp.full_name} Administrator`,
-          school_type: 'Public',
+          school_type: 'Private',
           area: 'Malir Town',
           city: 'Karachi',
           district: 'Malir',

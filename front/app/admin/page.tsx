@@ -205,36 +205,39 @@ export default function AdminPanelPage() {
         // 2. Map real schools from Supabase
         schools.forEach((s: any) => {
           const prof = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
+          const schoolEmail = prof?.email || s.email || `${s.school_name.toLowerCase().replace(/[^a-z0-9]/g, '')}@teachconnect.pk`;
+          const schoolPhone = prof?.phone || s.phone || '021-34567890';
           records.push({
             id: s.id,
             name: s.school_name,
-            email: prof?.email || 'school@teachconnect.pk',
-            phone: prof?.phone || '021-34567890',
+            email: schoolEmail,
+            phone: schoolPhone,
             role: 'School',
             detail: `${s.school_type || 'Private'} • ${s.area || 'Karachi'}, ${s.city || 'Karachi'}`,
             date: new Date(s.created_at).toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
             status: s.moderation_status === 'suspended' ? 'suspended' : 'active',
-            contactPerson: s.contact_person,
-            schoolType: s.school_type === 'Other' ? (s.custom_school_type || 'Other') : s.school_type,
-            city: s.city,
-            district: s.district,
-            area: s.area,
+            contactPerson: s.contact_person || prof?.full_name || s.school_name,
+            schoolType: s.school_type === 'Other' ? (s.custom_school_type || 'Other') : (s.school_type || 'Private'),
+            city: s.city || 'Karachi',
+            district: s.district || 'Malir',
+            area: s.area || 'Malir Town',
           });
         });
 
-        // Deduplicate records strictly by unique ID and unique email
+        // Deduplicate records strictly by unique ID and unique non-placeholder email
         const seenIds = new Set<string>();
         const seenEmails = new Set<string>();
         const uniqueRecords: UserRecord[] = [];
 
         for (const rec of records) {
           const emailKey = (rec.email || '').toLowerCase().trim();
+          const isGeneric = !emailKey || emailKey.endsWith('@teachconnect.pk');
           const hasSeenId = rec.id && seenIds.has(rec.id);
-          const hasSeenEmail = emailKey && seenEmails.has(emailKey);
+          const hasSeenEmail = !isGeneric && seenEmails.has(emailKey);
 
           if (!hasSeenId && !hasSeenEmail) {
             if (rec.id) seenIds.add(rec.id);
-            if (emailKey) seenEmails.add(emailKey);
+            if (!isGeneric) seenEmails.add(emailKey);
             uniqueRecords.push(rec);
           }
         }
