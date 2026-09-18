@@ -2195,13 +2195,45 @@ export async function getSchoolDashboardData(options?: {
       `)
       .order('created_at', { ascending: false });
 
-    if (schoolId) {
+    if (schoolId && schoolName) {
+      requestQuery = requestQuery.or(`school_id.eq.${schoolId},school_name.ilike.${schoolName.trim()}`);
+    } else if (schoolId) {
       requestQuery = requestQuery.eq('school_id', schoolId);
     } else if (schoolName) {
       requestQuery = requestQuery.ilike('school_name', schoolName.trim());
     }
 
     const { data: sentRequests } = await requestQuery;
+
+    // Sync fresh Supabase request status into local storage caches
+    if (typeof window !== 'undefined' && Array.isArray(sentRequests) && sentRequests.length > 0) {
+      try {
+        const localList = getLocalContactRequests();
+        let changed = false;
+        const updatedLocal = localList.map((lr: any) => {
+          const matchedRemote = sentRequests.find((sr: any) => sr.id === lr.id || (sr.id && lr.requestId && sr.id === lr.requestId));
+          if (matchedRemote) {
+            changed = true;
+            return {
+              ...lr,
+              ...matchedRemote,
+              status: matchedRemote.status || lr.status,
+              shared_phone: matchedRemote.shared_phone || lr.shared_phone || lr.teacherPhone,
+              shared_whatsapp: matchedRemote.shared_whatsapp || lr.shared_whatsapp || lr.teacherWhatsApp,
+              teacherPhone: matchedRemote.shared_phone || lr.teacherPhone,
+              teacherWhatsApp: matchedRemote.shared_whatsapp || lr.teacherWhatsApp,
+              teacher_response_note: matchedRemote.teacher_response_note || lr.teacher_response_note,
+              responded_at: matchedRemote.responded_at || lr.responded_at,
+            };
+          }
+          return lr;
+        });
+        if (changed) {
+          localStorage.setItem(LOCAL_REQUESTS_KEY, JSON.stringify(updatedLocal));
+          localStorage.setItem('teachconnect_sent_requests', JSON.stringify(updatedLocal));
+        }
+      } catch {}
+    }
 
     let shortlistQuery = supabase
       .from('school_shortlists')
